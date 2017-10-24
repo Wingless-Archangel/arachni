@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -14,7 +14,7 @@ class Arachni::Plugins::LoginScript < Arachni::Plugin::Base
     STATUSES  = {
         success:         'Login was successful.',
         failure:         'The script was executed successfully, but the login check failed.',
-        error:           'A runtime error was encountered while executing the login script.',
+        error:           'An error was encountered while executing the login script.',
         missing_browser: 'A browser is required for this operation but is not available.',
         missing_check:   'No session check was provided, either via interface options or the script.'
     }
@@ -29,26 +29,34 @@ class Arachni::Plugins::LoginScript < Arachni::Plugin::Base
                 eval script
             end
         end
-    end
 
-    def run
         if javascript? && !session.has_browser?
             set_status :missing_browser, :error
             return
         end
 
-        framework_pause
-        print_info 'System paused.'
-
         session.record_login_sequence do |browser|
             print_info 'Running the script.'
-            @script.call browser ? browser.watir : nil
+
+            if browser
+                watir = browser.watir
+                watir.window.resize_to(
+                    Arachni::Options.browser_cluster.screen_width,
+                    Arachni::Options.browser_cluster.screen_height
+                )
+                @script.call watir
+                browser.wait_till_ready
+            else
+                @script.call
+            end
+
             print_info 'Execution completed.'
         end
 
         begin
             session.login( true )
-        rescue => e
+        rescue Exception => e
+            print_exception e
             set_status :error
             return
         end
@@ -74,16 +82,6 @@ class Arachni::Plugins::LoginScript < Arachni::Plugin::Base
         print_exception e
     end
 
-    def clean_up
-        if @failed
-            print_info 'Aborting the scan.'
-            framework_abort
-            return
-        end
-
-        framework_resume
-    end
-
     def javascript?
         @options[:script].split( '.' ).last == 'js'
     end
@@ -98,8 +96,12 @@ class Arachni::Plugins::LoginScript < Arachni::Plugin::Base
             }.merge( extra )
         )
 
-        @failed = true if type == :error
         send "print_#{type}", STATUSES[status]
+
+        if type == :error
+            print_info 'Aborting the scan.'
+            framework_abort
+        end
     end
 
     def self.info
@@ -117,7 +119,7 @@ that process and, for example, load and set cookies from a shared cookie-jar.
 
 ## With browser (slow)
 
-If a [browser](http://watirwebdriver.com/) is available, it will be exposed to
+If a [browser](http://watir.github.io/) is available, it will be exposed to
 the script via the `browser` variable. Otherwise, that variable will have a
 value of `nil`.
 
@@ -159,6 +161,35 @@ by loading cookies from a shared Netscape-style cookie-jar file.
 
     http.cookie_jar.load 'cookies.txt'
 
+## Advanced session check configuration
+
+In addition to just settings the `check_url` and `check_pattern` options,
+you can also set arbitrary HTTP request options for the login check, to cover
+cases where extra tokens or a method other than `GET` must be used.
+
+    session.check_options = {
+        # :get, :post, :put, :delete
+        method:     :post,
+
+        # URL query parameters.
+        parameters: {
+            'param1' => 'value'
+        },
+
+        # Request body parameters -- can also be a String instead of Hash.
+        body:       {
+            'body_param1' => 'value'
+        },
+
+        cookies:    {
+            'custom_cookie' => 'value'
+        },
+
+        headers:    {
+            'X-Custom-Header' => 'value'
+        }
+    }
+
 # Javascript
 
 When the given script has a `.js` file extension, it will be loaded and executed
@@ -171,7 +202,7 @@ in the browser, within the page of the target URL.
 
 },
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.2',
+            version:     '0.2.3',
             options:     [
                 Options::Path.new( :script,
                     required:    true,

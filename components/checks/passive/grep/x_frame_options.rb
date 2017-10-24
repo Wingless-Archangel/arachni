@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -7,17 +7,18 @@
 =end
 
 # @author  Tasos Laskos <tasos.laskos@arachni-scanner.com>
-# @version 0.1.1
+# @version 0.1.2
 class Arachni::Checks::XFrameOptions < Arachni::Check::Base
 
     def run
         return if audited?( page.parsed_url.host ) ||
+            page.response.headers.empty? ||
             page.response.headers['X-Frame-Options']
         audited( page.parsed_url.host )
 
         log(
             vector: Element::Server.new( page.url ),
-            proof:  page.response.headers_string
+            proof:  page.response.status_line
         )
     end
 
@@ -26,7 +27,7 @@ class Arachni::Checks::XFrameOptions < Arachni::Check::Base
             name:        'Missing X-Frame-Options header',
             description: %q{Checks the host for a missing `X-Frame-Options` header.},
             author:      'Tasos Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.1.1',
+            version:     '0.1.2',
             elements:    [ Element::Server ],
 
             issue:       {
@@ -54,7 +55,7 @@ embedded into other sites.
                 cwe:         693,
                 severity:    Severity::LOW,
                 remedy_guidance: %q{
-Configure your web server to include an X-Frame-Options header.
+Configure your web server to include an `X-Frame-Options` header.
 }
             }
         }

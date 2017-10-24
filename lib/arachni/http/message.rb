@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -37,6 +37,17 @@ class Message
     # @option   options [String]    :body
     #   Body.
     def initialize( options = {} )
+        update( options )
+
+        fail ArgumentError, 'Missing :url.' if url.to_s.empty?
+    end
+
+    def update( options )
+        @normalize_url = options[:normalize_url]
+
+        # Headers are necessary for subsequent operations to set them first.
+        @headers = Headers.new( options[:headers] || {} )
+
         options.each do |k, v|
             begin
                 send( "#{k}=", v )
@@ -44,10 +55,10 @@ class Message
                 instance_variable_set( "@#{k}".to_sym, v )
             end
         end
+    end
 
-        fail ArgumentError, 'Missing :url.' if url.to_s.empty?
-
-        @headers = Headers.new( @headers )
+    def headers=( h )
+        @headers = Headers.new( h || {} )
     end
 
     # @return   [Scope]
@@ -61,7 +72,11 @@ class Message
     end
 
     def url=( url )
-        @url = Arachni::URI( url ).to_s.freeze
+        if @normalize_url || @normalize_url.nil?
+            @url = URI.normalize( url ).to_s.freeze
+        else
+            @url = url.to_s.freeze
+        end
     end
 
 end

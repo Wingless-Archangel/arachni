@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -41,7 +41,14 @@ class OptionParser
     end
 
     def on( *args, &block )
-        parser.on( *args, &block )
+        parser.on( *args ) do |*bargs|
+            begin
+                block.call *bargs
+            rescue => e
+                print_bad "#{args.first.split( /\s/ ).first}: [#{e.class}] #{e}"
+                exit 1
+            end
+        end
     end
 
     def banner

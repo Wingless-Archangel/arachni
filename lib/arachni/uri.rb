@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -21,16 +21,13 @@ module Arachni
     end
 
 # The URI class automatically normalizes the URLs it is passed to parse
-# while maintaining compatibility with Ruby's URI core class by delegating
-# missing methods to it -- thus, you can treat it like a Ruby URI and enjoy some
-# extra perks along the way.
+# while maintaining compatibility with Ruby's URI core class.
 #
 # It also provides *cached* (to maintain a low latency) helper class methods to
 # ease common operations such as:
 #
 # * {.normalize Normalization}.
-# * Parsing to {.parse Arachni::URI} (see also {.URI}), {.ruby_parse ::URI} or
-#   {.fast_parse Hash} objects.
+# * Parsing to {.parse Arachni::URI} (see also {.URI}) or {.fast_parse Hash} objects.
 # * Conversion to {.to_absolute absolute URLs}.
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
@@ -50,13 +47,15 @@ class URI
     end
 
     CACHE_SIZES = {
-        parse:       1000,
-        ruby_parse:  1000,
-        fast_parse:  1000,
-        encode:      1000,
-        decode:      1000,
-        normalize:   1000,
-        to_absolute: 1000
+        parse:       2_500,
+
+        normalize:   2_500,
+        to_absolute: 2_500,
+
+        encode:      1_000,
+        decode:      1_000,
+
+        scope:       1_000
     }
 
     CACHE = {
@@ -65,6 +64,12 @@ class URI
     CACHE_SIZES.each do |name, size|
         CACHE[name] = Support::Cache::LeastRecentlyPushed.new( size )
     end
+
+    QUERY_CHARACTER_CLASS = Addressable::URI::CharacterClasses::QUERY.sub( '\\&', '' )
+
+    VALID_SCHEMES     = Set.new(%w(http https))
+    PARTS             = %w(scheme userinfo host port path query)
+    TO_ABSOLUTE_PARTS = %w(scheme userinfo host port)
 
     class <<self
 
@@ -83,8 +88,13 @@ class URI
         # @return   [String]
         #   Encoded string.
         def encode( string, good_characters = nil )
-            CACHE[__method__][[string, good_characters]] ||=
-                Addressable::URI.encode_component( *[string, good_characters].compact )
+            CACHE[__method__].fetch [string, good_characters] do
+                s = Addressable::URI.encode_component(
+                    *[string, good_characters].compact
+                )
+                s.recode!
+                s
+            end
         end
 
         # URL decodes a string.
@@ -93,7 +103,16 @@ class URI
         #
         # @return   [String]
         def decode( string )
-            CACHE[__method__][string] ||= Addressable::URI.unencode( string )
+            CACHE[__method__].fetch( string ) do
+                s = Addressable::URI.unencode( string )
+
+                if s
+                    s.recode!
+                    s.gsub!( '+', ' ' )
+                end
+
+                s
+            end
         end
 
         # @note This method's results are cached for performance reasons.
@@ -106,35 +125,10 @@ class URI
         # @see URI#initialize
         def parse( url )
             return url if !url || url.is_a?( Arachni::URI )
-            CACHE[__method__][url] ||= begin
-                new( url )
-            rescue => e
-                print_debug "Failed to parse '#{url}'."
-                print_debug "Error: #{e}"
-                print_debug_backtrace( e )
-                nil
-            end
-        end
 
-        # @note This method's results are cached for performance reasons.
-        #   If you plan on doing something destructive with its return value
-        #   duplicate it first because there may be references to it elsewhere.
-        #
-        # {.normalize Normalizes} `url` and uses Ruby's core URI lib to parse it.
-        #
-        # @param    [String]    url
-        #   URL to parse
-        #
-        # @return   [URI]
-        def ruby_parse( url )
-            return url if url.to_s.empty? || url.is_a?( ::URI )
-            return if url.downcase.start_with? 'javascript:'
-
-            CACHE[__method__][url] ||= begin
-                ::URI::Generic.build( fast_parse( url ) )
-            rescue
+            CACHE[__method__].fetch url do
                 begin
-                    parser.parse( normalize( url ).dup )
+                    new( url )
                 rescue => e
                     print_debug "Failed to parse '#{url}'."
                     print_debug "Error: #{e}"
@@ -144,15 +138,6 @@ class URI
             end
         end
 
-        # @note This method's results are cached for performance reasons.
-        #   If you plan on doing something destructive with its return value
-        #   duplicate it first because there may be references to it elsewhere.
-        #
-        # @note The Hash is suitable for passing to `::URI::Generic.build` -- if
-        #   however you plan on doing that you'll be better off just using
-        #   {.ruby_parse} which does the same thing and caches the results for some
-        #   extra schnell.
-        #
         # Performs a parse that is less resource intensive than Ruby's URI lib's
         # method while normalizing the URL (will also discard the fragment and
         # path parameters).
@@ -170,18 +155,20 @@ class URI
         #     * `:query`
         def fast_parse( url )
             return if !url || url.empty?
-            return if url.downcase.start_with? 'javascript:'
+            return if url.start_with?( '#' )
 
-            cache = CACHE[__method__]
+            durl = url.downcase
+            return if durl.start_with?( 'javascript:' ) ||
+                durl.start_with?( 'data:' )
 
-            url = url.to_s.dup
+            # One to rip apart.
+            url = url.dup
 
             # Remove the fragment if there is one.
-            if url.include?( '#' )
-                url = url.split( '#', 2 )[0...-1].join
-            end
+            url.sub!( /#.*/, '' )
 
-            c_url = url.dup
+            # One for reference.
+            c_url = url
 
             components = {
                 scheme:   nil,
@@ -192,65 +179,57 @@ class URI
                 query:    nil
             }
 
-            valid_schemes = %w(http https)
-
             begin
-                if (v = cache[url]) && v == :err
-                    return
-                elsif v
-                    return v
+                # Parsing the URL in its schemeless form is trickier, so we
+                # fake it, pass a valid scheme to get through the parsing and
+                # then remove it at the other end.
+                if (schemeless = url.start_with?( '//' ))
+                    url.insert 0, 'http:'
                 end
 
-                # We're not smart enough for scheme-less URLs and if we're to go
-                # into heuristics then there's no reason to not just use
-                # Addressable's parser.
-                if url.start_with?( '//' )
-                    return cache[c_url] = addressable_parse( c_url ).freeze
-                end
-
-                url = url.recode!
+                # url.recode!
                 url = html_decode( url )
 
                 dupped_url = url.dup
                 has_path = true
 
                 splits = url.split( ':' )
-                if !splits.empty? && valid_schemes.include?( splits.first.downcase )
+                if !splits.empty? && VALID_SCHEMES.include?( splits.first.downcase )
+
                     splits = url.split( '://', 2 )
                     components[:scheme] = splits.shift
                     components[:scheme].downcase! if components[:scheme]
 
-                    if url = splits.shift
-                        splits = url.to_s.split( '?' ).first.to_s.split( '@', 2 )
+                    if (url = splits.shift)
+                        userinfo_host, url =
+                            url.to_s.split( '?' ).first.to_s.split( '/', 2 )
+
+                        url    = url.to_s
+                        splits = userinfo_host.to_s.split( '@', 2 )
 
                         if splits.size > 1
                             components[:userinfo] = splits.first
-                            url = splits.shift
                         end
 
                         if !splits.empty?
                             splits = splits.last.split( '/', 2 )
-                            url = splits.last
 
                             splits = splits.first.split( ':', 2 )
                             if splits.size == 2
                                 host = splits.first
 
                                 if splits.last && !splits.last.empty?
-                                    components[:port] = Integer( splits.last )
+                                    components[:port] = splits.last.to_i
                                 end
 
                                 if components[:port] == 80
                                     components[:port] = nil
                                 end
-
-                                url.gsub!( ':' + components[:port].to_s, '' )
                             else
                                 host = splits.last
                             end
 
-                            if components[:host] = host
-                                url.gsub!( host, '' )
+                            if (components[:host] = host)
                                 components[:host].downcase!
                             end
                         else
@@ -265,20 +244,20 @@ class URI
                     splits = url.split( '?', 2 )
                     if (components[:path] = splits.shift)
                         if components[:scheme]
-                            components[:path] = '/' + components[:path]
+                            components[:path] = "/#{components[:path]}"
                         end
 
                         components[:path].gsub!( /\/+/, '/' )
 
                         # Remove path params
-                        components[:path] = components[:path].split( ';', 2 ).first
+                        components[:path].sub!( /\;.*/, '' )
 
                         if components[:path]
                             components[:path] =
                                 encode( decode( components[:path] ),
-                                        Addressable::URI::CharacterClasses::PATH )
+                                        Addressable::URI::CharacterClasses::PATH ).dup
 
-                            components[:path] = ::URI.encode( components[:path], ';' )
+                            components[:path].gsub!( ';', '%3B' )
                         end
                     end
 
@@ -286,68 +265,25 @@ class URI
                         !(query = dupped_url.split( '?', 2 ).last).empty?
 
                         components[:query] = (query.split( '&', -1 ).map do |pair|
-                            encode( decode( pair ),
-                                    Addressable::URI::CharacterClasses::QUERY.sub( '\\&', '' ) )
+                            encode( decode( pair ), QUERY_CHARACTER_CLASS )
                         end).join( '&' )
                     end
                 end
 
+                if schemeless
+                    components.delete :scheme
+                end
+
                 components[:path] ||= components[:scheme] ? '/' : nil
 
-                components.values.each(&:freeze)
-
-                cache[c_url] = components.freeze
+                components
             rescue => e
-                begin
-                    print_debug "Failed to fast-parse '#{c_url}', falling back to slow-parse."
-                    print_debug "Error: #{e}"
-                    print_debug_backtrace( e )
+                print_debug "Failed to parse '#{c_url}'."
+                print_debug "Error: #{e}"
+                print_debug_backtrace( e )
 
-                    cache[c_url] = addressable_parse( c_url.recode! ).freeze
-                rescue => ex
-                    print_debug "Failed to parse '#{c_url}'."
-                    print_debug "Error: #{ex}"
-                    print_debug_backtrace( ex )
-
-                    cache[c_url] = :err
-                    nil
-                end
+                nil
             end
-        end
-
-        # @note The Hash is suitable for passing to `::URI::Generic.build` -- if
-        #   however you plan on doing that you'll be better off just using
-        #   {.ruby_parse} which does the same thing and caches the results for
-        #   some extra schnell.
-        #
-        # Performs a parse using the `URI::Addressable` lib while normalizing the
-        # URL (will also discard the fragment).
-        #
-        # This method is not cached and solely exists as a fallback used by {.fast_parse}.
-        #
-        # @param    [String]  url
-        #
-        # @return   [Hash]
-        #   URL components:
-        #
-        #     * `:scheme` -- HTTP or HTTPS
-        #     * `:userinfo` -- `username:password`
-        #     * `:host`
-        #     * `:port`
-        #     * `:path`
-        #     * `:query`
-        #
-        def addressable_parse( url )
-            u = Addressable::URI.parse( html_decode( url.to_s ) ).normalize
-            u.fragment = nil
-            h = u.to_hash
-
-            h[:path].gsub!( /\/+/, '/' ) if h[:path]
-            if h[:user]
-                h[:userinfo] = h.delete( :user )
-                h[:userinfo] << ":#{h.delete( :password )}" if h[:password]
-            end
-            h
         end
 
         # @note This method's results are cached for performance reasons.
@@ -366,8 +302,8 @@ class URI
         # @return   [String]
         #   Absolute URL (frozen).
         def to_absolute( relative, reference = Options.instance.url.to_s )
-            return reference if !relative || relative.empty?
-            key = relative + ' :: ' + reference
+            return normalize( reference ) if !relative || relative.empty?
+            key = [relative, reference].hash
 
             cache = CACHE[__method__]
             begin
@@ -385,7 +321,13 @@ class URI
                     relative = "#{parsed_ref.scheme}:#{relative}"
                 end
 
-                cache[key] = parse( relative ).to_absolute( parsed_ref ).to_s.freeze
+                parsed = parse( relative )
+
+                # Doesn't contain anything or interest (javascript: or fragment only),
+                # return the ref.
+                return parsed_ref.to_s if !parsed
+
+                cache[key] = parsed.to_absolute( parsed_ref ).to_s.freeze
             rescue
                 cache[key] = :err
                 nil
@@ -396,8 +338,8 @@ class URI
         #   If you plan on doing something destructive with its return value
         #   duplicate it first because there may be references to it elsewhere.
         #
-        # Uses {.fast_parse} to parse and normalize the URL and then converts
-        # it to a common {String} format.
+        # Uses {.parse} to parse and normalize the URL and then converts it to
+        # a common {String} format.
         #
         # @param    [String]    url
         #
@@ -418,25 +360,7 @@ class URI
                     return v
                 end
 
-                components = fast_parse( url )
-
-                normalized = ''
-                normalized << components[:scheme] + '://' if components[:scheme]
-
-                if components[:userinfo]
-                    normalized << components[:userinfo]
-                    normalized << '@'
-                end
-
-                if components[:host]
-                    normalized << components[:host]
-                    normalized << ':' + components[:port].to_s if components[:port]
-                end
-
-                normalized << components[:path] if components[:path]
-                normalized << '?' + components[:query] if components[:query]
-
-                cache[c_url] = normalized.freeze
+                cache[c_url] = parse( url ).to_s.freeze
             rescue => e
                 print_debug "Failed to normalize '#{c_url}'."
                 print_debug "Error: #{e}"
@@ -486,79 +410,142 @@ class URI
 
     # @note Will discard the fragment component, if there is one.
     #
-    # {.normalize Normalizes} and parses the provided URL.
-    #
-    # @param    [Arachni::URI, String, URI, Hash]    url
-    #   {String} URL to parse, `URI` to convert, or a `Hash` holding URL components
-    #   (for `URI::Generic.build`). Also accepts {Arachni::URI} for convenience.
+    # @param    [String]    url
     def initialize( url )
-        @parsed_url = case url
-                          when String
-                              self.class.ruby_parse( url )
+        @data = self.class.fast_parse( url )
 
-                          when ::URI
-                              url
+        fail Error, 'Failed to parse URL.' if !@data
 
-                          when Hash
-                              ::URI::Generic.build( url )
+        PARTS.each do |part|
+            instance_variable_set( "@#{part}", @data[part.to_sym] )
+        end
 
-                          when Arachni::URI
-                              self.parsed_url = url.parsed_url
-
-                          else
-                              to_string = url.to_s rescue ''
-                              msg = 'Argument must either be String, URI or Hash'
-                              msg << " -- #{url.class.name} '#{to_string}' passed."
-                              fail ArgumentError.new( msg )
-                      end
-
-        fail Error, 'Failed to parse URL.' if !@parsed_url
-
-        # We probably got it from the cache, dup it to avoid corrupting the cache
-        # entries.
-        @parsed_url = @parsed_url.dup
+        reset_userpass
     end
 
     # @return   [Scope]
     def scope
-        @scope ||= Scope.new( self )
+        # We could have several identical URLs in play at any given time and
+        # they will all have the same scope.
+        CACHE[:scope].fetch( self ){ Scope.new( self ) }
     end
 
     def ==( other )
         to_s == other.to_s
     end
 
+    def absolute?
+        !!@scheme
+    end
+
+    def relative?
+        !absolute?
+    end
+
     # Converts self into an absolute URL using `reference` to fill in the
     # missing data.
     #
-    # @param    [Arachni::URI, URI, String]    reference
+    # @param    [Arachni::URI, #to_s]    reference
     #   Full, absolute URL.
     #
     # @return   [Arachni::URI]
-    #   Self, as an absolute URL.
-    def to_absolute( reference )
-        absolute = case reference
-                       when Arachni::URI
-                           reference.parsed_url
-                       when ::URI
-                           reference
-                       else
-                           self.class.new( reference.to_s ).parsed_url
-                   end.merge( @parsed_url )
+    #   Copy of self, as an absolute URL.
+    def to_absolute!( reference )
+        if !reference.is_a?( self.class )
+            reference = self.class.new( reference.to_s )
+        end
 
-        self.class.new( absolute )
+        TO_ABSOLUTE_PARTS.each do |part|
+            next if send( part )
+
+            ref_part = reference.send( "#{part}" )
+            next if !ref_part
+
+            send( "#{part}=", ref_part )
+        end
+
+        base_path = reference.path.split( %r{/+}, -1 )
+        rel_path  = path.split( %r{/+}, -1 )
+
+        # RFC2396, Section 5.2, 6), a)
+        base_path << '' if base_path.last == '..'
+        while (i = base_path.index( '..' ))
+            base_path.slice!( i - 1, 2 )
+        end
+
+        if (first = rel_path.first) && first.empty?
+            base_path.clear
+            rel_path.shift
+        end
+
+        # RFC2396, Section 5.2, 6), c)
+        # RFC2396, Section 5.2, 6), d)
+        rel_path.push('') if rel_path.last == '.' || rel_path.last == '..'
+        rel_path.delete('.')
+
+        # RFC2396, Section 5.2, 6), e)
+        tmp = []
+        rel_path.each do |x|
+            if x == '..' &&
+                !(tmp.empty? || tmp.last == '..')
+                tmp.pop
+            else
+                tmp << x
+            end
+        end
+
+        add_trailer_slash = !tmp.empty?
+        if base_path.empty?
+            base_path = [''] # keep '/' for root directory
+        elsif add_trailer_slash
+            base_path.pop
+        end
+
+        while (x = tmp.shift)
+            if x == '..'
+                # RFC2396, Section 4
+                # a .. or . in an absolute path has no special meaning
+                base_path.pop if base_path.size > 1
+            else
+                # if x == '..'
+                #   valid absolute (but abnormal) path "/../..."
+                # else
+                #   valid absolute path
+                # end
+                base_path << x
+                tmp.each {|t| base_path << t}
+                add_trailer_slash = false
+                break
+            end
+        end
+
+        base_path.push('') if add_trailer_slash
+        @path = base_path.join('/')
+
+        self
+    end
+
+    # @return   [Bool]
+    #   `true` if the scan #{Utilities.random_seed seed} is included in the
+    #   domain, `false` otherwise.
+    def seed_in_host?
+        host.to_s.include?( Utilities.random_seed )
+    end
+
+    def to_absolute( reference )
+        dup.to_absolute!( reference )
     end
 
     # @return   [String]
     #   The URL up to its resource component (query, fragment, etc).
     def without_query
-        to_s.split( '?', 2 ).first.to_s
+        @without_query ||= to_s.split( '?', 2 ).first.to_s
     end
 
     # @return   [String]
     #   Name of the resource.
     def resource_name
-        path.split( '/' ).last
+        @resource_name ||= path.split( '/' ).last
     end
 
     # @return   [String, nil]
@@ -567,35 +554,53 @@ class URI
         name = resource_name.to_s
         return if !name.include?( '.' )
 
-        name.split( '.' ).last
+        @resource_extension ||= name.split( '.' ).last
     end
 
     # @return   [String]
     #   The URL up to its path component (no resource name, query, fragment, etc).
     def up_to_path
         return if !path
-        uri_path = path.dup
 
-        uri_path = File.dirname( uri_path ) if !File.extname( path ).empty?
+        @up_to_path ||= begin
+            uri_path = path.dup
+            uri_path = File.dirname( uri_path ) if !File.extname( path ).empty?
 
-        uri_path << '/' if uri_path[-1] != '/'
+            uri_path << '/' if uri_path[-1] != '/'
 
-        uri_str = "#{scheme}://#{host}"
-        uri_str << ':' + port.to_s if port && port != 80
-        uri_str << uri_path
+            up_to_port + uri_path
+        end
+    end
+
+    # @return   [String]
+    #   Scheme, host & port only.
+    def up_to_port
+        @up_to_port ||= begin
+            uri_str = "#{scheme}://#{host}"
+
+            if port && (
+                (scheme == 'http' && port != 80) ||
+                    (scheme == 'https' && port != 443)
+            )
+                uri_str << ':' + port.to_s
+            end
+
+            uri_str
+        end
     end
 
     # @return [String]
     #   `domain_name.tld`
     def domain
         return if !host
-        return host if ip_address?
+        return @domain if @domain
+        return @domain = host if ip_address?
 
         s = host.split( '.' )
-        return s.first if s.size == 1
-        return host if s.size == 2
+        return @domain = s.first if s.size == 1
+        return @domain = host    if s.size == 2
 
-        s[1..-1].join( '.' )
+        @domain = s[1..-1].join( '.' )
     end
 
     # @param    [Hash<Regexp => String>]    rules
@@ -621,15 +626,19 @@ class URI
         !(IPAddr.new( host ) rescue nil).nil?
     end
 
-    def mailto?
-        scheme == 'mailto'
+    def query
+        @query
     end
 
     def query=( q )
+        @to_s             = nil
+        @without_query    = nil
+        @query_parameters = nil
+
         q = q.to_s
         q = nil if q.empty?
 
-        @parsed_url.query = q
+        @query = q
     end
 
     # @return   [Hash]
@@ -638,20 +647,136 @@ class URI
         q = self.query
         return {} if q.to_s.empty?
 
-        q.split( '&' ).inject( {} ) do |h, pair|
-            name, value = pair.split( '=', 2 )
-            h[::URI.decode( name.to_s )] = ::URI.decode( value.to_s )
-            h
+        @query_parameters ||= begin
+            q.split( '&' ).inject( {} ) do |h, pair|
+                name, value = pair.split( '=', 2 )
+                h[::URI.decode( name.to_s )] = ::URI.decode( value.to_s )
+                h
+            end
         end
+    end
+
+    def userinfo=( ui )
+        @without_query = nil
+        @to_s          = nil
+
+        @userinfo = ui
+    ensure
+        reset_userpass
+    end
+
+    def userinfo
+        @userinfo
+    end
+
+    def user
+        @user
+    end
+
+    def password
+        @password
+    end
+
+    def port
+        @port
+    end
+
+    def port=( p )
+        @without_query = nil
+        @to_s          = nil
+
+        if p
+            @port = p.to_i
+        else
+            @port = nil
+        end
+    end
+
+    def host
+        @host
+    end
+
+    def host=( h )
+        @to_s          = nil
+        @up_to_port    = nil
+        @without_query = nil
+        @domain        = nil
+
+        @host = h
+    end
+
+    def path
+        @path
+    end
+
+    def path=( p )
+        @up_to_path         = nil
+        @resource_name      = nil
+        @resource_extension = nil
+        @without_query      = nil
+        @to_s               = nil
+
+        @path = p
+    end
+
+    def scheme
+        @scheme
+    end
+
+    def scheme=( s )
+        @up_to_port    = nil
+        @without_query = nil
+        @to_s          = nil
+
+        @scheme = s
     end
 
     # @return   [String]
     def to_s
-        @parsed_url.to_s
+        @to_s ||= begin
+            s = ''
+
+            if @scheme
+                s << @scheme
+                s << '://'
+            end
+
+            if @userinfo
+                s << @userinfo
+                s << '@'
+            end
+
+            if @host
+                s << @host
+
+                if @port
+                    if (@scheme == 'http' && @port != 80) ||
+                        (@scheme == 'https' && @port != 443)
+
+                        s << ':'
+                        s << @port.to_s
+                    end
+                end
+            end
+
+            s << @path.to_s
+
+            if @query
+                s << '?'
+                s << @query
+            end
+
+            s
+        end
     end
 
     def dup
-        self.class.new( to_s )
+        i = self.class.allocate
+        instance_variables.each do |iv|
+            next if !(v = instance_variable_get( iv ))
+            i.instance_variable_set iv, (v.dup rescue v)
+        end
+        i
     end
 
     def _dump( _ )
@@ -670,28 +795,14 @@ class URI
         to_s.persistent_hash
     end
 
-    # Delegates unimplemented methods to Ruby's `URI::Generic` class for
-    # compatibility.
-    def method_missing( sym, *args, &block )
-        if @parsed_url.respond_to?( sym )
-            @parsed_url.send( sym, *args, &block )
+    private
+
+    def reset_userpass
+        if @userinfo
+            @user, @password = @userinfo.split( ':', -1 )
         else
-            super
+            @user = @password = nil
         end
-    end
-
-    def respond_to?( *args )
-        super || @parsed_url.respond_to?( *args )
-    end
-
-    protected
-
-    def parsed_url
-        @parsed_url
-    end
-
-    def parsed_url=( url )
-        @parsed_url = url
     end
 
 end

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -100,7 +100,8 @@ module MultiInstance
 
         data = {
             status: status,
-            busy:   running?
+            busy:   running?,
+            seed:   Utilities.random_seed
         }
 
         if include_issues

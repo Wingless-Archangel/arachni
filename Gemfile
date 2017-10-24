@@ -1,6 +1,7 @@
 source 'https://rubygems.org'
 
-gem 'rake'
+gem 'rake', '11.3.0'
+gem 'pry'
 
 group :docs do
     gem 'yard'
@@ -10,19 +11,16 @@ end
 group :spec do
     gem 'simplecov', require: false, group: :test
 
-    gem 'rspec', '2.99'
+    gem 'rspec', '2.99.0'
     gem 'faker'
-
-    gem 'puma' if !Gem.win_platform? || RUBY_PLATFORM == 'java'
-
-    gem 'sinatra'
-    gem 'sinatra-contrib'
 end
 
 group :prof do
     gem 'stackprof'
     gem 'sys-proctable'
     gem 'ruby-mass'
+    gem 'benchmark-ips'
+    gem 'memory_profiler'
 end
 
 gemspec

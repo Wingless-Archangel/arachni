@@ -1,7 +1,7 @@
 # encoding: utf-8
 
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -12,20 +12,17 @@ require 'rubygems'
 require 'monitor'
 require 'bundler/setup'
 
-require 'ap'
-require 'pp'
-
 require_relative 'options'
 
 module Arachni
 
 lib = Options.paths.lib
 require lib + 'version'
+require lib + 'support'
 require lib + 'ruby'
 require lib + 'error'
 require lib + 'scope'
 require lib + 'utilities'
-require lib + 'support'
 require lib + 'uri'
 require lib + 'component'
 require lib + 'platform'
@@ -133,6 +130,7 @@ class Framework
     #   Framework statistics:
     #
     #   *  `:http`          -- {HTTP::Client#statistics}
+    #   * `browser_cluster` -- {BrowserCluster.statistics}
     #   *  `:runtime`       -- Scan runtime in seconds.
     #   *  `:found_pages`   -- Number of discovered pages.
     #   *  `:audited_pages` -- Number of audited pages.
@@ -141,11 +139,12 @@ class Framework
     #   *  `:messages`      -- {#status_messages}
     def statistics
         {
-            http:          http.statistics,
-            runtime:       @start_datetime ? Time.now - @start_datetime : 0,
-            found_pages:   sitemap.size,
-            audited_pages: state.audited_page_count,
-            current_page:  @current_url
+            http:            http.statistics,
+            browser_cluster: BrowserCluster.statistics,
+            runtime:         @start_datetime ? Time.now - @start_datetime : 0,
+            found_pages:     sitemap.size,
+            audited_pages:   state.audited_page_count,
+            current_page:    @current_url
         }
     end
 

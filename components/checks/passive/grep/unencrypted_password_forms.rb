@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -23,19 +23,19 @@ class Arachni::Checks::UnencryptedPasswordForms < Arachni::Check::Base
         return if !check_form?( form )
 
         form.inputs.each do |name, v|
-            next if form.field_type_for( name ) != :password || audited?( form.id )
+            next if form.field_type_for( name ) != :password
 
             cform = form.dup
             cform.affected_input_name = name
             log( vector: cform, proof: form.source )
-
-            print_ok( "Found unprotected password field '#{name}' at #{page.url}" )
-            audited form.id
         end
+
+        audited form.id
     end
 
     def check_form?( form )
-        uri_parse( form.action ).scheme.downcase == 'http'
+        uri_parse( form.action ).scheme == 'http' ||
+            audited?( form.id ) || !form.requires_password?
     end
 
     def self.info
@@ -45,7 +45,7 @@ class Arachni::Checks::UnencryptedPasswordForms < Arachni::Check::Base
                 over an encrypted channel (HTTPS).},
             elements:    [ Element::Form ],
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com> ',
-            version:     '0.2',
+            version:     '0.2.2',
 
             issue:       {
                 name:            %q{Unencrypted password form},

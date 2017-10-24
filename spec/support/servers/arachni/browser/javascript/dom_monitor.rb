@@ -87,12 +87,68 @@ get '/intervals' do
 HTML
 end
 
+get '/elements_with_events/whitelist' do
+    <<HTML
+    <div id="parent">
+        <p id="parent-p">
+            <button id="parent-button">Click me</button>
+        </p>
+
+        <div id="child">
+            <p id="child-p">
+                <span id="child-span">Click me too</button>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener( "click", function( window_click ){}, false );
+        document.addEventListener( "click", function( document_click ){}, false );
+        document.getElementById( "parent" ).addEventListener( "click", function( parent_click ){}, false );
+        document.getElementById( "child" ).addEventListener( "click", function( child_click ){}, false );
+    </script>
+HTML
+end
+
+get '/elements_with_events/inherited' do
+    <<HTML
+    <div id="parent">
+        <p id="parent-p">
+            <button id="parent-button">Click me</button>
+        </p>
+
+        <div id="child">
+            <p id="child-p">
+                <button id="child-button">Click me too</button>
+            </p>
+        </div>
+    </div>
+
+    <script>
+        window.addEventListener( "click", function( window_click ){}, false );
+        document.addEventListener( "click", function( document_click ){}, false );
+        document.getElementById( "parent" ).addEventListener( "click", function( parent_click ){}, false );
+        document.getElementById( "child" ).addEventListener( "click", function( child_click ){}, false );
+    </script>
+HTML
+end
+
 get '/elements_with_events/attributes' do
     <<HTML
     <body>
         <button onclick="handler_1()" id="my-button">Click me</button>
         <button onclick="handler_2()" id="my-button2">Click me too</button>
         <button onclick="handler_3()" id="my-button3">Don't bother clicking me</button>
+    </body>
+HTML
+end
+
+get '/elements_with_events/attributes/inappropriate' do
+    <<HTML
+    <body>
+        <button onselect="handler_1()" id="my-button">Click me</button>
+        <button onkeydown="handler_2()" id="my-button2">Click me too</button>
+        <button onsubmit="handler_3()" id="my-button3">Don't bother clicking me</button>
     </body>
 HTML
 end
@@ -109,6 +165,21 @@ get '/elements_with_events/listeners' do
         document.getElementById( "my-button" ).addEventListener( "onmouseover", function( my_button_onmouseover ){}, false );
 
         document.getElementById( "my-button2" ).addEventListener( "click", function( my_button2_click ){}, false );
+    </script>
+HTML
+end
+
+get '/elements_with_events/listeners/inappropriate' do
+    <<HTML
+    <button id="my-button">Click me</button>
+    <button id="my-button2">Click me too</button>
+    <button id="my-button3">Don't bother clicking me</button>
+
+    <script>
+        document.getElementById( "my-button" ).addEventListener( "select", function( my_button_click ){}, false );
+        document.getElementById( "my-button" ).addEventListener( "submit", function( my_button_click2 ){}, false );
+
+        document.getElementById( "my-button2" ).addEventListener( "select", function( my_button2_click ){}, false );
     </script>
 HTML
 end
@@ -148,7 +219,7 @@ get '/elements_with_events/jQuery.on-object-types' do
     <script>
         $('#my-button').on({
             click: function (){},
-            hover: function (){}
+            mouseover: function (){}
         });
     </script>
 HTML
@@ -164,7 +235,7 @@ get '/elements_with_events/jQuery.on-selector' do
 
             });
 
-            $('body').on( 'hover', '#my-button', function (){
+            $('body').on( 'mouseover', '#my-button', function (){
 
             });
 
@@ -187,7 +258,7 @@ get '/elements_with_events/jQuery.on-object-types-selector' do
         <script>
             $('body').on({
                 click: function (){},
-                hover: function (){}
+                mouseover: function (){}
             }, '#my-button');
         </script>
 
@@ -219,7 +290,7 @@ get '/elements_with_events/jQuery.delegate-object-types' do
         <script>
             $('body').delegate( '#my-button', {
                 click: function (){},
-                hover: function (){}
+                mouseover: function (){}
             });
         </script>
 

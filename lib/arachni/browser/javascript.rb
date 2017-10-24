@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -21,10 +21,6 @@ class Javascript
     require_relative 'javascript/taint_tracer'
     require_relative 'javascript/dom_monitor'
 
-    CACHE = {
-        select_event_attributes: Support::Cache::LeastRecentlyPushed.new( 1_000 )
-    }
-
     TOKEN = 'arachni_js_namespace'
 
     # @return   [String]
@@ -39,75 +35,46 @@ class Javascript
         h.merge!( path => IO.read(path) )
     end
 
-    HTML_IDENTIFIERS = ['<!doctype html', '<html', '<head', '<body', '<title', '<script']
+    NO_EVENTS_FOR_ELEMENTS = Set.new(%w(
+        base bdo br head html iframe meta param script style title link hr
+    ))
 
-    NO_EVENTS_FOR_ELEMENTS = Set.new([
-        :base, :bdo, :br, :head, :html, :iframe, :meta, :param, :script, :style,
-        :title, :link
-    ])
+    EACH_DOM_ELEMENT_WITH_EVENTS_BATCH_SIZE = 300
 
-    # Events that apply to all elements.
-    GLOBAL_EVENTS = [
+    EVENTS = Set.new([
         :onclick,
         :ondblclick,
         :onmousedown,
         :onmousemove,
         :onmouseout,
         :onmouseover,
-        :onmouseup
-    ]
-
-    # Special events for each element.
-    EVENTS_PER_ELEMENT = {
-        body: [
-                  :onload
-              ],
-
-        form: [
-                  :onsubmit,
-                  :onreset
-              ],
-
-        # These need to be covered via Watir's API, #send_keys etc.
-        input: [
-                  :onselect,
-                  :onchange,
-                  :onfocus,
-                  :onblur,
-                  :onkeydown,
-                  :onkeypress,
-                  :onkeyup,
-                  :oninput
-              ],
-
-        # These need to be covered via Watir's API, #send_keys etc.
-        textarea: [
-                  :onselect,
-                  :onchange,
-                  :onfocus,
-                  :onblur,
-                  :onkeydown,
-                  :onkeypress,
-                  :onkeyup,
-                  :oninput
-              ],
-
-        select: [
-                  :onchange,
-                  :onfocus,
-                  :onblur
-              ],
-
-        button: [
-                  :onfocus,
-                  :onblur
-              ],
-
-        label: [
-                  :onfocus,
-                  :onblur
-              ]
-    }
+        :onmouseup,
+        :onload,
+        :onsubmit,
+        :onselect,
+        :onchange,
+        :onfocus,
+        :onblur,
+        :onkeydown,
+        :onkeypress,
+        :onkeyup,
+        :oninput,
+        :onselect,
+        :onchange,
+        :onfocus,
+        :onblur,
+        :onkeydown,
+        :onkeypress,
+        :onkeyup,
+        :oninput,
+        :onchange,
+        :onfocus,
+        :onblur,
+        :onfocus,
+        :onblur,
+        :onfocus,
+        :onblur
+    ])
 
     # @return   [String]
     #   Token used to namespace the injected JS code and avoid clashes.
@@ -131,32 +98,7 @@ class Javascript
     attr_reader :taint_tracer
 
     def self.events
-        GLOBAL_EVENTS | EVENTS_PER_ELEMENT.values.flatten.uniq
-    end
-
-    def self.event_whitelist
-        @event_whitelist ||= Set.new( events.flatten.map(&:to_s) )
-    end
-
-    # @param    [Symbol]    element
-    #
-    # @return   [Array<Symbol>]
-    #   Events for `element`.
-    def self.events_for( element )
-        GLOBAL_EVENTS | EVENTS_PER_ELEMENT[element.to_sym]
-    end
-
-    # @param    [Hash]  attributes
-    #   Element attributes.
-    #
-    # @return   [Hash]
-    #   `attributes` that include {.events}.
-    def self.select_event_attributes( attributes = {} )
-        CACHE[:select_event_attributes][attributes] ||=
-            attributes.inject({}) do |h, (event, handler)|
-                next h if !event_whitelist.include?( event.to_s )
-                h.merge!( event.to_sym => handler )
-            end
+        EVENTS
     end
 
     # @param    [Browser]   browser
@@ -216,14 +158,34 @@ class Javascript
 
     # Blocks until the browser page is {#ready? ready}.
     def wait_till_ready
-        return if !supported?
-        sleep 0.1 while !ready?
+        print_debug_level_2 'Waiting for custom JS...'
+
+        if !supported?
+            print_debug_level_2 '...unsupported.'
+            return
+        end
+
+        t = Time.now
+        while !ready?
+            sleep 0.1
+
+            if Time.now - t > Options.browser_cluster.job_timeout
+                print_debug_level_2 '...timed out.'
+                return
+            end
+        end
+
+        print_debug_level_2 '...done.'
+        true
     end
 
     # @return   [Bool]
     #   `true` if our custom JS environment has been initialized.
     def ready?
-        !!run( "return window._#{token}" ) rescue false
+        !!run( "return window._#{token}" )
+    rescue => e
+        print_debug_exception e, 2
+        false
     end
 
     # @param    [String]    script
@@ -231,8 +193,8 @@ class Javascript
     #
     # @return   [Object]
     #   Result of `script`.
-    def run( script )
-        @browser.watir.execute_script script
+    def run( *args )
+        @browser.selenium.execute_script *args
     end
 
     # Executes the given code but unwraps Watir elements.
@@ -242,8 +204,13 @@ class Javascript
     #
     # @return   [Object]
     #   Result of `script`.
-    def run_without_elements( script )
-        unwrap_elements run( script )
+    def run_without_elements( *args )
+        unwrap_elements run( *args )
+    end
+
+    def has_sinks?
+        return false if !supported?
+        taint_tracer.has_sinks( @taint )
     end
 
     # @return   (see TaintTracer#debug)
@@ -290,29 +257,43 @@ class Javascript
         dom_monitor.digest
     end
 
+    # @return   [String]
+    #   Digest of the available DOM events.
+    def dom_event_digest
+        return '' if !supported?
+        dom_monitor.event_digest
+    end
+
     # @note Will not include custom events.
     #
     # @return   [Array<Hash>]
     #   Information about all DOM elements, including any registered event listeners.
-    def dom_elements_with_events
-        return [] if !supported?
+    def each_dom_element_with_events( whitelist = [] )
+        return if !supported?
 
-        dom_monitor.elements_with_events.map do |element|
-            next if NO_EVENTS_FOR_ELEMENTS.include? element['tag_name'].to_sym
+        start      = 0
+        batch_size = EACH_DOM_ELEMENT_WITH_EVENTS_BATCH_SIZE
 
-            attributes = element['attributes']
+        loop do
+            elements = dom_monitor.elements_with_events( start, batch_size, whitelist )
+            return if elements.empty?
 
-            element['events'] = (element['events'].map do |event, fn|
-                next if !(self.class.event_whitelist.include?( event ) ||
-                    self.class.event_whitelist.include?( "on#{event}" ))
+            elements.each do |element|
+                next if NO_EVENTS_FOR_ELEMENTS.include? element['tag_name']
 
-                [event.to_sym, fn]
-            end.compact)
+                events = {}
+                element['events'].each do |event, handlers|
+                    events[event.to_sym] = handlers
+                end
+                element['events'] = events
 
-            element['events'] |= self.class.select_event_attributes( attributes ).to_a
+                yield element
+            end
 
-            element
-        end.compact
+            return if elements.size < batch_size
+
+            start += elements.size
+        end
     end
 
     # @return   [Array<Array>]
@@ -320,13 +301,6 @@ class Javascript
     def timeouts
         return [] if !supported?
         dom_monitor.timeouts
-    end
-
-    # @return   [Array<Array>]
-    #   Arguments for JS `setInterval` calls.
-    def intervals
-        return [] if !supported?
-        dom_monitor.intervals
     end
 
     # @param    [HTTP::Request]     request
@@ -368,30 +342,24 @@ class Javascript
         # This is necessary because new files can be required dynamically.
         if javascript?( response )
 
-            response.body = <<-EOCODE
+            response.body.insert 0, <<-EOCODE
                 #{js_comment}
                 #{taint_tracer.stub.function( :update_tracers )};
                 #{dom_monitor.stub.function( :update_trackers )};
-
-                #{response.body};
             EOCODE
+            response.body << ";\n"
 
         # Already has the JS initializer, so it's an HTML response; just update
         # taints and custom code.
         elsif has_js_initializer?( response )
 
-            body = response.body.dup
-
-            update_taints( body )
-            update_custom_code( body )
-
-            response.body = body
+            update_taints( response.body, response )
+            update_custom_code( response.body )
 
         elsif html?( response )
-            body = response.body.dup
 
             # Perform an update before each script.
-            body.gsub!(
+            response.body.gsub!(
                 /<script.*?>/i,
                 "\\0\n
                 #{js_comment}
@@ -400,7 +368,7 @@ class Javascript
             )
 
             # Perform an update after each script.
-            body.gsub!(
+            response.body.gsub!(
                 /<\/script>/i,
                 "\\0\n<script type=\"text/javascript\">" <<
                     "#{@taint_tracer.stub.function( :update_tracers )};" <<
@@ -409,21 +377,19 @@ class Javascript
             )
 
             # Include and initialize our JS interfaces.
-            response.body = <<-EOHTML
+            response.body.insert 0, <<-EOHTML
+<script src="#{script_url_for( :polyfills )}"></script> #{html_comment}
 <script src="#{script_url_for( :taint_tracer )}"></script> #{html_comment}
 <script src="#{script_url_for( :dom_monitor )}"></script> #{html_comment}
 <script>
-#{wrapped_taint_tracer_initializer}
+#{wrapped_taint_tracer_initializer( response )}
 #{js_initialization_signal};
 
 #{wrapped_custom_code}
 </script> #{html_comment}
-
-#{body}
             EOHTML
-        end
 
-        response.headers['content-length'] = response.body.size
+        end
 
         true
     end
@@ -435,13 +401,8 @@ class Javascript
     def html?( response )
         return false if response.body.empty?
 
-        # We only care about HTML.
-        return false if !response.headers.content_type.to_s.downcase.start_with?( 'text/html' )
-
-        # Let's check that the response at least looks like it contains HTML
-        # code of interest.
-        body = response.body.downcase
-        return false if !HTML_IDENTIFIERS.find { |tag| body.include? tag.downcase }
+        # We only care about HTML responses.
+        return false if !response.html?
 
         # The last check isn't fool-proof, so don't do it when loading the page
         # for the first time, but only when the page loads stuff via AJAX and whatnot.
@@ -455,12 +416,11 @@ class Javascript
         #
         # For example, it may have been JSON with the wrong content-type that
         # includes HTML -- it happens.
-        begin
-            return false if Nokogiri::XML( response.body ).children.empty?
-        rescue => e
+        #
+        # Beware, if there's a doctype in the beginning this will get fooled.
+        if !Parser.markup?( response.body )
             print_debug "Does not look like HTML: #{response.url}"
             print_debug "\n#{response.body}"
-            print_debug_exception e
             return false
         end
 
@@ -477,22 +437,48 @@ class Javascript
         "<!-- Injected by #{self.class} -->"
     end
 
-    def taints
-        taints = [@taint]
+    def taints( response )
+        taints = {}
+
+        [@taint].flatten.compact.each do |t|
+            taints[t] = {
+                stop_at_first: false,
+                trace:         true
+            }
+        end
 
         # Include cookie names and values in the trace so that the browser will
         # be able to infer if they're being used, to avoid unnecessary audits.
         if Options.audit.cookie_doms?
-            taints |= HTTP::Client.cookies.map { |c| c.inputs.to_a }.flatten
+            cookies = begin
+                HTTP::Client.cookie_jar.for_url( response.url )
+            rescue
+                print_debug "Could not get cookies for URL '#{response.url}' from Cookiejar (#{e})."
+                print_debug_exception e
+                HTTP::Client.cookies
+            end
+
+            cookies.each do |c|
+                next if c.http_only?
+
+                c.inputs.to_a.flatten.each do |input|
+                    next if input.empty?
+
+                    taints[input] ||= {
+                        stop_at_first: true,
+                        trace:         false
+                    }
+                end
+            end
         end
 
-        taints.flatten.reject { |v| v.to_s.empty? }
+        taints
     end
 
-    def update_taints( body )
+    def update_taints( body, response )
         body.gsub!(
             /\/\* #{token}_initialize_start \*\/(.*)\/\* #{token}_initialize_stop \*\//,
-            wrapped_taint_tracer_initializer
+            wrapped_taint_tracer_initializer( response )
         )
     end
 
@@ -503,14 +489,14 @@ class Javascript
         )
     end
 
-    def wrapped_taint_tracer_initializer
-        "/* #{token}_initialize_start */" <<
-            "#{@taint_tracer.stub.function( :initialize, taints )}" <<
+    def wrapped_taint_tracer_initializer( response )
+        "/* #{token}_initialize_start */ " <<
+            "#{@taint_tracer.stub.function( :initialize, taints( response ) )} " <<
             "/* #{token}_initialize_stop */"
     end
 
     def wrapped_custom_code
-        "/* #{token}_code_start */#{custom_code}/* #{token}_code_stop */"
+        "/* #{token}_code_start */ #{custom_code} /* #{token}_code_stop */"
     end
 
     def js_initialization_signal
@@ -529,9 +515,14 @@ class Javascript
     end
 
     def filesystem_path_for_script( filename )
-        name = "#{SCRIPT_LIBRARY}#{filename}"
-        name << '.js' if !name.end_with?( '.js')
-        File.expand_path( name )
+        @filesystem_path_for_script ||= {}
+
+        @filesystem_path_for_script[filename] ||= begin
+            name = "#{SCRIPT_LIBRARY}#{filename}"
+            name << '.js' if !name.end_with?( '.js')
+
+            File.expand_path( name )
+        end
     end
 
     def script_url_for( filename )
@@ -548,6 +539,9 @@ class Javascript
             when Watir::Element
                 unwrap_element( obj )
 
+            when Selenium::WebDriver::Element
+                unwrap_element( obj )
+
             when Array
                 obj.map { |e| unwrap_elements( e ) }
 
@@ -562,6 +556,8 @@ class Javascript
 
     def unwrap_element( element )
         element.html
+    rescue Selenium::WebDriver::Error::StaleElementReferenceError
+        ''
     end
 
 end

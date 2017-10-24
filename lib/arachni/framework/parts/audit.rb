@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -80,10 +80,15 @@ module Audit
 
         state.audited_page_count += 1
         add_to_sitemap( page )
-        sitemap.merge!( browser_sitemap )
 
         print_line
-        print_status "[HTTP: #{page.code}] #{page.dom.url}"
+
+        if page.response.ok?
+            print_status "[HTTP: #{page.code}] #{page.dom.url}"
+        else
+            print_error "[HTTP: #{page.code}] #{page.dom.url}"
+            print_error "[#{page.response.return_code}] #{page.response.return_message}"
+        end
 
         if page.platforms.any?
             print_info "Identified as: #{page.platforms.to_a.join( ', ' )}"
@@ -183,6 +188,11 @@ module Audit
                 pending_jobs = browser_cluster.pending_job_counter
                 if pending_jobs != last_pending_jobs
                     browser_cluster.print_info "Pending jobs: #{pending_jobs}"
+
+                    browser_cluster.print_debug 'Current jobs:'
+                    browser_cluster.workers.each do |worker|
+                        browser_cluster.print_debug worker.job.to_s
+                    end
                 end
                 last_pending_jobs = pending_jobs
 

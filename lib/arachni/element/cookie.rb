@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -25,6 +25,10 @@ class Cookie < Base
     Dir.glob( lib ).each { |f| require f }
 
     # Generic element capabilities.
+    include Arachni::Element::Capabilities::Submittable
+    include Arachni::Element::Capabilities::Auditable
+    include Arachni::Element::Capabilities::Auditable::Buffered
+    include Arachni::Element::Capabilities::Auditable::LineBuffered
     include Arachni::Element::Capabilities::Analyzable
     include Arachni::Element::Capabilities::WithSource
 
@@ -33,10 +37,17 @@ class Cookie < Base
     include Capabilities::Inputtable
     include Capabilities::Mutable
 
+    ENCODE_CHARACTERS      = ['+', ';', '%', "\0", '&', ' ', '"', "\n", "\r", '=']
+    ENCODE_CHARACTERS_LIST = ENCODE_CHARACTERS.join
+
+    ENCODE_CACHE = Arachni::Support::Cache::LeastRecentlyPushed.new( 1_000 )
+
     # Default cookie values
     DEFAULT = {
         name:        nil,
         value:       nil,
+        raw_name:    nil,
+        raw_value:   nil,
         version:     0,
         port:        nil,
         discard:     nil,
@@ -86,7 +97,7 @@ class Cookie < Base
         end
 
         if @data[:expires] && !@data[:expires].is_a?( Time )
-            @data[:expires] = Time.parse( @data[:expires] ) rescue nil
+            @data[:expires] = Time.parse( @data[:expires].to_s ) rescue nil
         end
 
         @data[:domain] ||= parsed_uri.host
@@ -163,20 +174,40 @@ class Cookie < Base
     # @return   [String]
     #   To be used in a `Cookie` HTTP request header.
     def to_s
-        "#{encode( name )}=#{encode( value )}"
+        # Only do encoding if we're dealing with updated inputs, otherwise pass
+        # along the raw data as set in order to deal with server-side decoding
+        # quirks.
+        if updated? || !(raw_name || raw_value )
+            "#{encode( name )}=#{encode( value )}"
+        else
+            "#{raw_name}=#{raw_value}"
+        end
     end
 
     # @return   [String]
     #   Converts self to a `Set-Cookie` string.
     def to_set_cookie
-        set_cookie = "#{self.to_s}; "
-        set_cookie << @data.map do |k, v|
+        set_cookie = "#{self.to_s}"
+
+        @data.each do |k, v|
             next if !v || !self.class.keep_for_set_cookie.include?( k )
-            "#{k.capitalize}=#{v}"
-        end.compact.join( '; ' )
+
+            set_cookie << "; #{k.capitalize}=#{v}"
+        end
 
         set_cookie << '; Secure'   if secure?
         set_cookie << '; HttpOnly' if http_only?
+
+        # If we want to set a cookie for only the domain that responded to the
+        # request, Set-Cookie should not specify a domain.
+        #
+        # If we want the cookie to apply to all subdomains, we need to either
+        # specify a dot-prefixed domain or a domain, the browser client will
+        # prefix the dot anyways.
+        #
+        # http://stackoverflow.com/questions/1062963/how-do-browser-cookie-domains-work/1063760#1063760
+        set_cookie << "; Domain=#{domain}" if domain.start_with?( '.' )
+
         set_cookie
     end
 
@@ -239,7 +270,7 @@ class Cookie < Base
                 next if (line = line.strip).empty? || line[0] == '#'
 
                 c = {}
-                c['domain'], foo, c['path'], c['secure'], c['expires'], c['name'],
+                c['domain'], _, c['path'], c['secure'], c['expires'], c['name'],
                     c['value'] = *line.split( "\t" )
 
                 # expiry date is optional so if we don't have one push everything back
@@ -250,7 +281,15 @@ class Cookie < Base
                     c['name'] = c['expires'].dup
                     c['expires'] = nil
                 end
+
                 c['secure'] = (c['secure'] == 'TRUE') ? true : false
+
+                c['raw_name'] = c['name']
+                c['name'] = decode( c['name'] )
+
+                c['raw_value'] = c['value']
+                c['value'] = decode( c['value'] )
+
                 new( { url: url }.merge( c.my_symbolize_keys ) )
             end.flatten.compact
         end
@@ -282,39 +321,35 @@ class Cookie < Base
         #
         # @return   [Array<Cookie>]
         #
-        # @see .from_document
+        # @see .from_parser
         # @see .from_headers
         def from_response( response )
-            from_document( response.url, response.body ) |
+            from_parser( Arachni::Parser.new( response ) ) +
                 from_headers( response.url, response.headers )
         end
 
         # Extracts cookies from a document based on `Set-Cookie` `http-equiv`
         # meta tags.
         #
-        # @param    [String]    url
-        #   Owner URL.
-        # @param    [String, Nokogiri::HTML::Document]    document
+        # @param    [Arachni::Parser]    parser
         #
         # @return   [Array<Cookie>]
         #
         # @see .parse_set_cookie
-        def from_document( url, document )
-            if !document.is_a?( Nokogiri::HTML::Document )
-                document = document.to_s
-
-                return [] if !(document =~ /set-cookie/i )
-
-                document = Nokogiri::HTML( document )
-            end
+        def from_parser( parser )
+            return [] if parser.body && !in_html?( parser.body )
 
             Arachni::Utilities.exception_jail {
-                document.search( '//meta[@http-equiv]' ).map do |elem|
+                parser.document.nodes_by_name( :meta ).map do |elem|
                     next if elem['http-equiv'].downcase != 'set-cookie'
 
-                    from_set_cookie( url, elem['content'] )
+                    from_set_cookie( parser.url, elem['content'] )
                 end.flatten.compact
             } rescue []
+        end
+
+        def in_html?( html )
+            html =~ /set-cookie/i
         end
 
         # Extracts cookies from the `Set-Cookie` HTTP response header field.
@@ -349,14 +384,32 @@ class Cookie < Base
                 cookie.instance_variables.each do |var|
                     cookie_hash[var.to_s.gsub( /@/, '' )] = cookie.instance_variable_get( var )
                 end
+
+                # http://stackoverflow.com/questions/1062963/how-do-browser-cookie-domains-work/1063760#1063760
+                if cookie_hash['domain']
+                    # IP addresses must be used verbatim.
+                    if !Arachni::URI( "http://#{cookie_hash['domain']}/" ).ip_address?
+                        cookie_hash['domain'] =
+                            ".#{cookie_hash['domain'].sub( /^\./, '' )}"
+                    end
+                end
+
                 cookie_hash['expires'] = cookie.expires
 
                 cookie_hash['path'] ||= '/'
+                cookie_hash['raw_name']  = cookie.name
                 cookie_hash['name']  = decode( cookie.name )
 
                 if too_big?( cookie.value )
                     cookie_hash['value'] = ''
                 else
+                    quoted = "\"#{cookie.value}\""
+                    if str.include? quoted
+                        cookie_hash['raw_value']  = quoted
+                    else
+                        cookie_hash['raw_value']  = cookie.value
+                    end
+
                     cookie_hash['value'] = decode( cookie.value )
                 end
 
@@ -385,9 +438,12 @@ class Cookie < Base
                 v = '' if too_big?( v )
 
                 new(
-                    url:    url,
-                    source: cookie_pair,
-                    inputs: { decode( k ) => value_to_v0( v ) }
+                    url:       url,
+                    source:    cookie_pair,
+                    raw_name:  k,
+                    raw_value: v,
+                    name:      decode( k ),
+                    value:     value_to_v0( v )
                 )
             end.flatten.compact
         end
@@ -404,13 +460,32 @@ class Cookie < Base
         #
         # @example
         #    p Cookie.encode "+;%=\0 "
-        #    #=> "%2B%3B%25%3D%00%20"
-        #
+        #    #=> "%2B%3B%25%3D%00+"
         # @param    [String]    str
         #
         # @return   [String]
         def encode( str )
-            Arachni::HTTP::Request.encode( str )
+            str = str.to_s
+
+            ENCODE_CACHE.fetch( [str, name] )  do
+                if ENCODE_CHARACTERS.find { |c| str.include? c }
+
+                    # Instead of just encoding everything we do this selectively because:
+                    #
+                    #  * Some webapps don't actually decode some cookies, they just get
+                    #    the raw value, so if we encode something may break.
+                    #  * We need to encode spaces as '+' because of the above.
+                    #    Since we decode values, any un-encoded '+' will be converted
+                    #    to spaces, and in order to send back a value that the server
+                    #    expects we use '+' for spaces.
+
+                    s = ::URI.encode( str, ENCODE_CHARACTERS_LIST )
+                    s.gsub!( '%20', '+' )
+                    s
+                else
+                    str
+                end
+            end
         end
 
         # Decodes a {String} encoded for the `Cookie` header field.
@@ -423,7 +498,7 @@ class Cookie < Base
         #
         # @return   [String]
         def decode( str )
-            ::URI.decode_www_form_component str.to_s
+            Form.decode str
         end
 
         def keep_for_set_cookie
@@ -432,6 +507,9 @@ class Cookie < Base
             @keep = Set.new( DEFAULT.keys )
             @keep.delete( :name )
             @keep.delete( :value )
+            @keep.delete( :raw_name )
+            @keep.delete( :raw_value )
+            @keep.delete( :domain )
             @keep.delete( :url )
             @keep.delete( :secure )
             @keep.delete( :httponly )

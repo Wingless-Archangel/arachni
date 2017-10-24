@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -167,7 +167,7 @@ class Manager
         rack:     'Rack',
         django:   'Django',
         cakephp:  'CakePHP',
-        nette:  'Nette Framework',
+        nette:    'Nette',
         symfony:  'Symfony',
         rails:    'Ruby on Rails',
         aspx_mvc: 'ASP.NET MVC',
@@ -175,8 +175,7 @@ class Manager
         cherrypy: 'CherryPy'
     }
 
-    # Amount of
-    PLATFORM_CACHE_SIZE = 1000
+    PLATFORM_CACHE_SIZE = 500
 
     def self.synchronize( &block )
         @mutex.synchronize( &block )
@@ -291,7 +290,7 @@ class Manager
         end
 
         return new_from_options if !(key = make_key( uri ))
-        synchronize { @platforms[key] ||= new_from_options }
+        synchronize { @platforms.fetch(key) { new_from_options } }
     end
 
     # Sets platform manager for the given `uri`.

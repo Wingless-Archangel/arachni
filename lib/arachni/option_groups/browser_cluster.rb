@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -12,6 +12,10 @@ module Arachni::OptionGroups
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
 class BrowserCluster < Arachni::OptionGroup
+
+    # @return   [Hash]
+    #   Data to be set in the browser's `localStorage`.
+    attr_accessor :local_storage
 
     # @return   [Hash<Regexp,String>]
     #   When the page URL matched the key `Regexp`, wait until the `String` CSS
@@ -43,14 +47,29 @@ class BrowserCluster < Arachni::OptionGroup
     attr_accessor :screen_height
 
     set_defaults(
+        local_storage:       {},
         wait_for_elements:   {},
         pool_size:           6,
-        job_timeout:         25,
+        # Not actually a timeout for the job anymore, sets a timeout for Selenium
+        # communication HTTP requests.
+        # Name hijacked for compatibility, but should probably change in the
+        # future.
+        job_timeout:         10,
         worker_time_to_live: 100,
         ignore_images:       false,
         screen_width:        1600,
         screen_height:       1200
     )
+
+    def local_storage=( data )
+        data ||= {}
+
+        if !data.is_a?( Hash )
+            fail ArgumentError, "Expected data to be Hash, got #{data.class} instead."
+        end
+
+        @local_storage = data
+    end
 
     def css_to_wait_for( url )
         wait_for_elements.map do |pattern, css|
@@ -63,7 +82,9 @@ class BrowserCluster < Arachni::OptionGroup
         return @wait_for_elements = defaults[:wait_for_elements].dup if !rules
 
         @wait_for_elements = rules.inject({}) do |h, (regexp, value)|
-            regexp = regexp.is_a?( Regexp ) ? regexp : Regexp.new( regexp.to_s )
+            regexp = regexp.is_a?( Regexp ) ?
+                regexp :
+                Regexp.new( regexp.to_s, Regexp::IGNORECASE )
             h.merge!( regexp => value )
             h
         end
@@ -72,8 +93,10 @@ class BrowserCluster < Arachni::OptionGroup
     def to_rpc_data
         d = super
 
-        %w(wait_for_elements).each do |k|
-            d[k] = d[k].my_stringify
+        d['wait_for_elements'] = d['wait_for_elements'].dup
+
+        d['wait_for_elements'].dup.each do |k, v|
+            d['wait_for_elements'][k.source] = d['wait_for_elements'].delete(k)
         end
 
         d

@@ -13,7 +13,7 @@ describe Arachni::HTTP::Response do
     subject { @subject }
 
     it "supports #{Arachni::RPC::Serializer}" do
-        subject.should == Arachni::RPC::Serializer.deep_clone( subject )
+        expect(subject).to eq(Arachni::RPC::Serializer.deep_clone( subject ))
     end
 
     describe '#to_rpc_data' do
@@ -22,16 +22,16 @@ describe Arachni::HTTP::Response do
         %w(url code ip_address headers body time app_time total_time return_code
             return_message).each do |attribute|
             it "includes '#{attribute}'" do
-                data[attribute].should == subject.send( attribute )
+                expect(data[attribute]).to eq(subject.send( attribute ))
             end
         end
 
         it "includes 'request'" do
-            data['request'].should == subject.request.to_rpc_data
+            expect(data['request']).to eq(subject.request.to_rpc_data)
         end
 
         it "does not include 'scope" do
-            data.should_not include 'scope'
+            expect(data).not_to include 'scope'
         end
     end
 
@@ -42,28 +42,28 @@ describe Arachni::HTTP::Response do
         %w(url code ip_address headers body time app_time total_time return_code
             return_message request).each do |attribute|
             it "restores '#{attribute}'" do
-                restored.send( attribute ).should == subject.send( attribute )
+                expect(restored.send( attribute )).to eq(subject.send( attribute ))
             end
         end
     end
 
     describe '#status_line' do
         it 'returns the first line of the response' do
-            @http.get( @url, mode: :sync ).status_line.should == 'HTTP/1.1 200 OK'
+            expect(@http.get( @url, mode: :sync ).status_line).to eq('HTTP/1.1 200 OK')
         end
     end
 
     describe '#modified?' do
         context 'when the #code is' do
-            describe 200 do
+            describe '200' do
                 it 'returns false' do
-                    described_class.new( url: @url, code: 200 ).should be_modified
+                    expect(described_class.new( url: @url, code: 200 )).to be_modified
                 end
             end
 
-            describe 304 do
+            describe '304' do
                 it 'returns true' do
-                    described_class.new( url: @url, code: 304 ).should_not be_modified
+                    expect(described_class.new( url: @url, code: 304 )).not_to be_modified
                 end
             end
         end
@@ -73,44 +73,236 @@ describe Arachni::HTTP::Response do
         context 'when the response is a redirection' do
             it 'returns true' do
                 300.upto( 399 ) do |c|
-                    described_class.new(
+                    expect(described_class.new(
                         url:     'http://test.com',
                         code:    c,
                         headers: {
                             location: '/test'
-                        }).redirection?.should be_true
+                        }).redirection?).to be_truthy
                 end
             end
         end
 
         context 'when the response is not a redirection' do
             it 'returns false' do
-                described_class.new( url: 'http://test.com', code: 200 ).redirection?.should be_false
+                expect(described_class.new( url: 'http://test.com', code: 200 ).redirection?).to be_falsey
             end
         end
     end
 
     describe '#to_s' do
         it 'returns the HTTP response as a string' do
-            subject.to_s.should == "#{subject.headers_string}#{subject.body}"
+            expect(subject.to_s).to eq("#{subject.headers_string}#{subject.body}")
         end
     end
 
     describe '#platforms' do
         it 'returns the platform manager for the resource' do
-            Factory[:response].platforms.should be_kind_of Arachni::Platform::Manager
+            expect(Factory[:response].platforms).to be_kind_of Arachni::Platform::Manager
         end
     end
 
     describe '#app_time' do
         it 'returns the approximated webap pprocessing time' do
             response = @http.get( @url, mode: :sync )
-            response.app_time.should > 0
-            response.app_time.should < 0.01
+            expect(response.app_time).to be > 0
+            expect(response.app_time).to be < 0.01
 
             response = @http.get( "#{@url}/sleep", mode: :sync )
-            response.app_time.should > 5
-            response.app_time.should < 5.01
+            expect(response.app_time).to be > 5
+            expect(response.app_time).to be < 5.01
+        end
+    end
+
+    describe '#ok?' do
+        before do
+            subject.return_code = return_code
+        end
+
+        context 'when #return_code is' do
+            context ':ok' do
+                let(:return_code) { :ok }
+
+                expect_it { to be_ok }
+            end
+
+            context 'not :ok' do
+                let(:return_code) { :blah }
+
+                expect_it { to_not be_ok }
+            end
+
+            context 'missing' do
+                let(:return_code) { nil }
+
+                expect_it { to be_ok }
+            end
+        end
+    end
+
+    describe '#html?' do
+        context 'when it starts with an HTML doctype' do
+            subject do
+                described_class.new(
+                    url:  'http://test.com',
+                    code: 200,
+                    body: body
+                )
+            end
+
+            let(:body) { '<!DOCTYPE html' }
+
+            expect_it { to be_html }
+        end
+
+        context 'when the Content-Type is' do
+            subject do
+                described_class.new(
+                    url:     'http://test.com',
+                    code:    200,
+                    headers: {
+                        'Content-Type' => content_type
+                    }
+                )
+            end
+
+            ['text/html', 'text/html; charset=ISO-8859-1',
+             'text/html ; charset=ISO-8859-1',
+             'application/xhtml+xml', 'application/xhtml+xml; charset=ISO-8859-1',
+             'application/xhtml+xml ; charset=ISO-8859-1'].each do |content_type|
+
+                context content_type.downcase do
+                    let(:content_type) { content_type.downcase }
+
+                    expect_it { to be_html }
+                end
+
+                context content_type.upcase do
+                    let(:content_type) { content_type.upcase }
+
+                    expect_it { to be_html }
+                end
+            end
+
+            context 'other' do
+                let(:content_type) { 'text/plain' }
+
+                expect_it { to_not be_html }
+            end
+
+            context 'missing' do
+                context 'and X-Content-Type-Options is' do
+                    context 'missing' do
+                        context 'and the body includes HTML identifier' do
+                            subject do
+                                described_class.new(
+                                    url:  'http://test.com',
+                                    code: 200,
+                                    body: body
+                                )
+                            end
+
+                            described_class::HTML_IDENTIFIERS.each do |id|
+                                context id.downcase do
+                                    let(:body) { id.downcase }
+
+                                    expect_it { to be_html }
+                                end
+
+                                context id.upcase do
+                                    let(:body) { id.upcase }
+
+                                    expect_it { to be_html }
+                                end
+                            end
+
+                            context 'other' do
+                                let(:body) { 'Stuff here' }
+
+                                expect_it { to_not be_html }
+                            end
+                        end
+                    end
+
+                    context 'nosniff' do
+                        context 'and the body includes HTML identifier' do
+                            subject do
+                                described_class.new(
+                                    url:  'http://test.com',
+                                    code: 200,
+                                    body: body,
+                                    headers: {
+                                        'X-Content-Type-Options' => 'nosniff'
+                                    }
+                                )
+                            end
+
+                            described_class::HTML_IDENTIFIERS.each do |id|
+                                context id.downcase do
+                                    let(:body) { id.downcase }
+
+                                    expect_it { to_not be_html }
+                                end
+
+                                context id.upcase do
+                                    let(:body) { id.upcase }
+
+                                    expect_it { to_not be_html }
+                                end
+                            end
+
+                            context 'other' do
+                                let(:body) { 'Stuff here' }
+
+                                expect_it { to_not be_html }
+                            end
+                        end
+                    end
+                end
+
+            end
+        end
+
+    end
+
+    describe '#partial?' do
+        context 'when the response body does not match the content-lenth' do
+            it 'returns true' do
+                response = @http.get( "#{@url}/partial", mode: :sync )
+                expect(response).to be_partial
+            end
+        end
+
+        context 'when the response body matches the content-length' do
+            it 'returns false' do
+                response = @http.get( @url, mode: :sync )
+                expect(response).to_not be_partial
+            end
+        end
+
+        context 'when dealing with a stream' do
+            context 'that does not complete' do
+                it 'returns true' do
+                    response = @http.get( "#{@url}/partial_stream", mode: :sync )
+                    expect(response.return_code).to eq :partial_file
+                    expect(response).to be_partial
+                end
+            end
+
+            context 'that closes abruptly' do
+                it 'returns true' do
+                    response = @http.get( "#{@url}/fail_stream", mode: :sync )
+                    expect(response.return_code).to eq :recv_error
+                    expect(response).to be_partial
+                end
+            end
+
+            context 'that completes' do
+                it 'returns false' do
+                    response = @http.get( "#{@url}/stream", mode: :sync )
+                    expect(response).to_not be_partial
+                end
+            end
         end
     end
 
@@ -123,7 +315,7 @@ describe Arachni::HTTP::Response do
                         headers: { 'Content-Type' => 'text/stuff' },
                         body:    'stuff'
                     }
-                    described_class.new( h ).text?.should be_true
+                    expect(described_class.new( h ).text?).to be_truthy
                 end
             end
 
@@ -136,7 +328,7 @@ describe Arachni::HTTP::Response do
                                 headers: { 'Content-Type' => 'application/stuff' },
                                 body:    "\00\00\00"
                             }
-                            described_class.new( h ).text?.should be_false
+                            expect(described_class.new( h ).text?).to be_falsey
                         end
                     end
 
@@ -147,7 +339,7 @@ describe Arachni::HTTP::Response do
                                 headers: { 'Content-Type' => 'application/stuff' },
                                 body:    'stuff'
                             }
-                            described_class.new( h ).text?.should be_true
+                            expect(described_class.new( h ).text?).to be_truthy
                         end
                     end
                 end
@@ -160,11 +352,11 @@ describe Arachni::HTTP::Response do
                         headers: { 'Content-Type' => 'blah/stuff' },
                         body:    'stuff'
                     }
-                    described_class.new( h ).text?.should be_false
+                    expect(described_class.new( h ).text?).to be_falsey
                 end
             end
 
-            context nil do
+            context 'nil' do
                 context 'and the response body is' do
                     context 'binary' do
                         it 'returns false' do
@@ -172,7 +364,7 @@ describe Arachni::HTTP::Response do
                                 url:  'http://test.com',
                                 body: "\00\00\00"
                             }
-                            described_class.new( h ).text?.should == false
+                            expect(described_class.new( h ).text?).to eq(false)
                         end
                     end
 
@@ -182,7 +374,7 @@ describe Arachni::HTTP::Response do
                                 url:  'http://test.com',
                                 body: 'stuff'
                             }
-                            described_class.new( h ).text?.should be_true
+                            expect(described_class.new( h ).text?).to eq(true)
                         end
                     end
 
@@ -192,7 +384,7 @@ describe Arachni::HTTP::Response do
                                 url:  'http://test.com',
                                 body: "abc\u3042\x81"
                             )
-                            r.text?.should be_nil
+                            expect(r.text?).to be_nil
                         end
                     end
                 end
@@ -229,18 +421,18 @@ describe Arachni::HTTP::Response do
             parser = Arachni::Parser.new( response )
             page = parser.page
 
-            page.url.should == parser.url
-            page.method.should == parser.response.request.method
-            page.response.should == parser.response
-            page.body.should == parser.response.body
-            page.query_vars.should == parser.link_vars
-            page.paths.should == parser.paths
-            page.links.should == parser.links
-            page.forms.should == parser.forms
-            page.cookies.should == parser.cookies_to_be_audited
-            page.headers.should == parser.headers
-            page.cookie_jar.should == parser.cookie_jar
-            page.text?.should == parser.text?
+            expect(page.url).to eq(parser.url)
+            expect(page.method).to eq(parser.response.request.method)
+            expect(page.response).to eq(parser.response)
+            expect(page.body).to eq(parser.response.body)
+            expect(page.query_vars).to eq(parser.link_vars)
+            expect(page.paths).to eq(parser.paths)
+            expect(page.links).to eq(parser.links)
+            expect(page.forms).to eq(parser.forms)
+            expect(page.cookies).to eq(parser.cookies_to_be_audited)
+            expect(page.headers).to eq(parser.headers)
+            expect(page.cookie_jar).to eq(parser.cookie_jar)
+            expect(page.text?).to eq(parser.text?)
         end
     end
 
@@ -248,19 +440,19 @@ describe Arachni::HTTP::Response do
         it 'sets the #time' do
             r = described_class.new( url: url )
             r.time = 1.2
-            r.time.should == 1.2
+            expect(r.time).to eq(1.2)
         end
 
         it 'casts to Float' do
             r = described_class.new( url: url )
             r.time = '1.2'
-            r.time.should == 1.2
+            expect(r.time).to eq(1.2)
         end
     end
 
     describe '#time' do
         it 'defaults to 0.0' do
-            described_class.new( url: url ).time.should == 0.0
+            expect(described_class.new( url: url ).time).to eq(0.0)
         end
     end
 
@@ -269,19 +461,13 @@ describe Arachni::HTTP::Response do
             body = 'Stuff...'
             r = described_class.new( url: url )
             r.body = body
-            r.body.should == body
-        end
-
-        it 'freezes it' do
-            r = described_class.new( url: url )
-            r.body = 'Stuff...'
-            r.body.should be_frozen
+            expect(r.body).to eq(body)
         end
 
         it 'forces it to a string' do
             r = described_class.new( url: url )
             r.body = nil
-            r.body.should == ''
+            expect(r.body).to eq('')
         end
 
         context 'when content-length is' do
@@ -295,7 +481,7 @@ describe Arachni::HTTP::Response do
                         body:    'stuff'
                     )
                     r.body = body
-                    r.body.should == "abcあ�"
+                    expect(r.body).to eq("abcあ�")
                 end
             end
 
@@ -307,7 +493,7 @@ describe Arachni::HTTP::Response do
                         body:    'stuff'
                     )
                     r.body = body
-                    r.body.should == body
+                    expect(r.body).to eq(body)
                 end
             end
 
@@ -315,7 +501,7 @@ describe Arachni::HTTP::Response do
                 it 'removes invalid characters' do
                     r = described_class.new( url:  'http://test.com' )
                     r.body = body
-                    r.body.should == "abcあ�"
+                    expect(r.body).to eq("abcあ�")
                 end
             end
         end
@@ -329,21 +515,22 @@ describe Arachni::HTTP::Response do
                     headers: { 'Content-Type' => 'application/stuff' },
                     body:    'stuff'
                 }
-                described_class.new( h.dup ).should == described_class.new( h.dup )
+                expect(described_class.new( h.dup )).to eq(described_class.new( h.dup ))
             end
         end
         context 'when responses are not identical' do
             it 'returns false' do
-                described_class.new(
+                expect(described_class.new(
                     url:     'http://test.com',
                     headers: { 'Content-Type' => 'application/stuff' },
                     body:    'stuff'
-                ).should_not ==
+                )).not_to eq(
                     described_class.new(
                         url:     'http://test.com',
                         headers: { 'Content-Type' => 'application/stuff1' },
                         body:    'stuff'
                     )
+                )
             end
         end
     end
@@ -363,7 +550,7 @@ describe Arachni::HTTP::Response do
                 return_message: 'No error'
             }
 
-            described_class.new( h ).to_h.should == h
+            expect(described_class.new( h ).to_h).to eq(h)
         end
     end
 

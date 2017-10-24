@@ -1,10 +1,12 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
     web site for more information on licensing and terms of use.
 =end
+
+require_relative '../dom'
 
 module Arachni::Element
 class Form
@@ -13,9 +15,14 @@ class Form
 # functionality.
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
-class DOM < Base
+class DOM < DOM
     include Arachni::Element::Capabilities::WithNode
-    include Arachni::Element::Capabilities::Auditable::DOM
+
+    include Arachni::Element::DOM::Capabilities::Locatable
+    include Arachni::Element::DOM::Capabilities::Mutable
+    include Arachni::Element::DOM::Capabilities::Inputtable
+    include Arachni::Element::DOM::Capabilities::Submittable
+    include Arachni::Element::DOM::Capabilities::Auditable
 
     def initialize( options )
         super
@@ -29,7 +36,7 @@ class DOM < Base
 
     # Submits the form using the configured {#inputs}.
     def trigger
-        browser.fire_event element, :submit, inputs: inputs.dup
+        [ browser.fire_event( locate, :submit, inputs: inputs.dup ) ]
     end
 
     def valid_input_name?( name )

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -39,9 +39,9 @@ module Utilities
         Form.from_response( *args )
     end
 
-    # @see Arachni::Element::Form.from_document
-    def forms_from_document( *args )
-        Form.from_document( *args )
+    # @see Arachni::Element::Form.from_parser
+    def forms_from_parser( *args )
+        Form.from_parser(*args )
     end
 
     # @see Arachni::Element::Form.encode
@@ -64,9 +64,9 @@ module Utilities
         Link.from_response( *args )
     end
 
-    # @see Arachni::Element::Link.from_document
-    def links_from_document( *args )
-        Link.from_document( *args )
+    # @see Arachni::Element::Link.from_parser
+    def links_from_parser( *args )
+        Link.from_parser(*args )
     end
 
     # @see Arachni::Element::Cookie.from_response
@@ -74,9 +74,9 @@ module Utilities
         Cookie.from_response( *args )
     end
 
-    # @see Arachni::Element::Cookie.from_document
-    def cookies_from_document( *args )
-        Cookie.from_document( *args )
+    # @see Arachni::Element::Cookie.from_parser
+    def cookies_from_parser( *args )
+        Cookie.from_parser(*args )
     end
 
     # @see Arachni::Element::Cookie.parse_set_cookie
@@ -341,9 +341,24 @@ module Utilities
     # @return   [Fixnum]
     #   Random available port number.
     def available_port
-        nil while !port_available?( port = rand_port )
-        port
+        available_port_mutex.synchronize do
+            @used_ports ||= Set.new
+
+            loop do
+                port = self.rand_port
+
+                if port_available?( port ) && !@used_ports.include?( port )
+                    @used_ports << port
+                    return port
+                end
+            end
+        end
     end
+
+    def self.available_port_mutex
+        @available_port_mutex ||= Mutex.new
+    end
+    available_port_mutex
 
     # @return   [Integer]
     #   Random port within the user specified range.
@@ -367,9 +382,11 @@ module Utilities
     # @return   [Bool]
     def port_available?( port )
         begin
-            TCPServer.new( '127.0.0.1', port ).close
+            socket = ::Socket.new( :INET, :STREAM, 0 )
+            socket.bind( ::Socket.sockaddr_in( port, '127.0.0.1' ) )
+            socket.close
             true
-        rescue
+        rescue Errno::EADDRINUSE, Errno::EACCES
             false
         end
     end

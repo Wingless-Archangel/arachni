@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -23,7 +23,9 @@ module WithDOM
     def dom
         return if skip_dom?
         @dom ||= self.class::DOM.new( parent: self )
-    rescue Inputtable::Error
+    rescue Inputtable::Error => e
+        print_debug_exception e
+        nil
     end
 
     def skip_dom=( bool )

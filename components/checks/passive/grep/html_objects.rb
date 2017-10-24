@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -9,11 +9,10 @@
 # Looks for HTML "object" tags.
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
-# @version 0.1.3
 class Arachni::Checks::HtmlObjects < Arachni::Check::Base
 
     def self.regexp
-        @regexp ||= /<object(?:.*?)>(?:.*?)<\/object>/im
+        @regexp ||= /<object.*?>.*?<\/object>/im
     end
 
     def run
@@ -30,7 +29,7 @@ class Arachni::Checks::HtmlObjects < Arachni::Check::Base
             description: description,
             elements:    [ Element::Body ],
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.1.3',
+            version:     '0.1.4',
 
             issue:       {
                 name:        %q{HTML object},

@@ -1,12 +1,10 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
     web site for more information on licensing and terms of use.
 =end
-
-require 'tmpdir'
 
 module Arachni
 module Support::Database
@@ -96,7 +94,7 @@ class Base
 
     def generate_filename
         # Should be unique enough...
-        "#{Dir.tmpdir}/#{self.class.name}_#{Process.pid}_#{object_id}_#{@filename_counter}".gsub( '::', '_' )
+        "#{Options.paths.tmpdir}/#{self.class.name}_#{Process.pid}_#{object_id}_#{@filename_counter}".gsub( '::', '_' )
     ensure
         @filename_counter += 1
     end

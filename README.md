@@ -3,7 +3,7 @@
 <table>
     <tr>
         <th>Version</th>
-        <td>1.2.1</td>
+        <td>1.5.1</td>
     </tr>
     <tr>
         <th>Homepage</th>
@@ -38,7 +38,7 @@
     </tr>
     <tr>
         <th>Copyright</th>
-        <td>2010-2015 Tasos Laskos</td>
+        <td>2010-2017 <a href="http://www.sarosys.com">Sarosys LLC</a></td>
     </tr>
     <tr>
         <th>License</th>
@@ -196,6 +196,8 @@ Configuration options include:
  - Ability to disable loading images.
  - Adjustable screen width and height.
      - Can be used to analyze responsive and mobile applications.
+ - Ability to wait until certain elements appear in the page.
+ - Configurable local storage data.
 
 ### Coverage
 
@@ -211,7 +213,12 @@ By inspecting all possible pages and their states (when using client-side code)
 Arachni is able to extract and audit the following elements and their inputs:
 
  - Forms
-    - Along with ones that require interaction with a real browser due to DOM events.
+    - Along with ones that require interaction via a real browser due to DOM events.
+ - User-interface Forms
+    - Input and button groups which don't belong to an HTML `<form>` element but
+        are instead associated via JS code.
+ - User-interface Inputs
+    - Orphan `<input>` elements with associated DOM events.
  - Links
     - Along with ones that have client-side parameters in their fragment, i.e.:
         `http://example.com/#/?param=val&param2=val2`
@@ -222,27 +229,45 @@ Arachni is able to extract and audit the following elements and their inputs:
             `http://example.com/#/param/val/param2/val2`
  - Cookies
  - Headers
- - Generic client-side elements like `input`s which have associated DOM events.
+ - Generic client-side elements which have associated DOM events.
  - AJAX-request parameters.
  - JSON request data.
  - XML request data.
 
 ### Open [distributed architecture](https://github.com/Arachni/arachni/wiki/Distributed-components)
 
-- High-performance/low-bandwidth [communication protocol](https://github.com/Arachni/arachni-rpc).
-    - `MessagePack` serialization for performance, efficiency and ease of
-        integration with 3rd party systems.
-- Remote monitoring and management of Dispatchers and Instances.
-- Parallel scans -- Each scan is compartmentalized to its own OS process to take
-    advantage of:
+Arachni is designed to fit into your workflow and easily integrate with your
+existing infrastructure.
+
+Depending on the level of control you require over the process, you can either
+choose the REST service or the custom RPC protocol.
+
+Both approaches allow you to:
+
+- Remotely monitor and manage scans.
+- Perform multiple scans at the same time -- Each scan is compartmentalized to
+    its own OS process to take advantage of:
     - Multi-core/SMP architectures.
     - OS-level scheduling/restrictions.
     - Sandboxed failure propagation.
-- Multi-Instance scans for parallelization of _individual scans_ using multiple
-    Instances to:
-    - Take advantage of multi-core/SMP architectures.
-    - Greatly diminish scan-times.
-- Dispatcher Grid:
+- Communicate over a secure channel.
+
+#### [REST API](https://github.com/Arachni/arachni/wiki/REST-API)
+
+- Very simple and straightforward API.
+- Easy interoperability with non-Ruby systems.
+    - Operates over HTTP.
+    - Uses JSON to format messages.
+- Stateful scan monitoring.
+    - Unique sessions automatically only receive updates when polling for progress,
+        rather than full data.
+
+#### [RPC API](https://github.com/Arachni/arachni/wiki/RPC-API)
+
+- High-performance/low-bandwidth [communication protocol](https://github.com/Arachni/arachni-rpc).
+    - `MessagePack` serialization for performance, efficiency and ease of
+        integration with 3rd party systems.
+- Grid:
     - Self-healing.
     - Scale up/down by hot-plugging/hot-unplugging nodes.
         - Can scale up infinitely by adding nodes to increase scan capacity.
@@ -252,7 +277,6 @@ Arachni is able to extract and audit the following elements and their inputs:
     - _(Optional)_ High-Performance mode -- Combines the resources of
         multiple nodes to perform multi-Instance scans.
         - Enabled on a per-scan basis.
-- SSL encryption (with optional peer authentication).
 
 ### Scope configuration
 
@@ -278,6 +302,11 @@ Arachni is able to extract and audit the following elements and their inputs:
     - Forms
         - Can automatically refresh nonce tokens.
         - Can submit them via the integrated browser environment.
+     - User-interface Forms
+        - Input and button groups which don't belong to an HTML `<form>` element
+            but are instead associated via JS code.
+    - User-interface Inputs
+        - Orphan `<input>` elements with associated DOM events.
     - Links
         - Can load them via the integrated browser environment.
     - LinkTemplates
@@ -285,12 +314,13 @@ Arachni is able to extract and audit the following elements and their inputs:
     - Cookies
         - Can load them via the integrated browser environment.
     - Headers
-    - Generic client-side DOM elements like `input`s.
+    - Generic client-side DOM elements.
     - JSON request data.
     - XML request data.
  - Can ignore binary/non-text pages.
- - Can optionally audit elements using both `GET` and `POST` HTTP methods.
- - Can optionally submit all links and forms of the page along with the cookie
+ - Can audit elements using both `GET` and `POST` HTTP methods.
+ - Can inject both raw and HTTP encoded payloads.
+ - Can submit all links and forms of the page along with the cookie
     permutations to provide extensive cookie-audit coverage.
  - Can exclude specific input vectors by name.
  - Can include specific input vectors by name.
@@ -433,7 +463,6 @@ Active checks engage the web application via its inputs.
 - XSS in HTML tags (`xss_tag`).
 - XSS in script context (`xss_script_context`).
 - DOM XSS (`xss_dom`).
-- DOM XSS inputs (`xss_dom_inputs`).
 - DOM XSS script context (`xss_dom_script_context`).
 - Source code disclosure (`source_code_disclosure`)
 - XML External Entity (`xxe`).
@@ -526,6 +555,9 @@ core remains lean and makes it easy for anyone to add arbitrary functionality.
 - Metrics (`metrics`) -- Captures metrics about multiple aspects of the scan and the web application.
 - Restrict to DOM state (`restrict_to_dom_state`) -- Restricts the audit to a single page's DOM
     state, based on a URL fragment.
+- Webhook notify (`webhook_notify`) -- Sends a webhook payload over HTTP at the end of the scan.
+- Rate limiter (`rate_limiter`) -- Rate limits HTTP requests.
+- Page dump (`page_dump`) -- Dumps page data to disk as YAML.
 
 ##### Defaults
 
@@ -579,7 +611,7 @@ You can run `rake spec` to run **all** specs or you can run them selectively usi
 **Please be warned**, the core specs will require a beast of a machine due to the
 necessity to test the Grid/multi-Instance features of the system.
 
-**Note**: _The check specs will take about 90 minutes due to the timing-attack tests._
+**Note**: _The check specs will take many hours to complete due to the timing-attack tests._
 
 ## Bug reports/Feature requests
 

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -12,10 +12,12 @@ class Arachni::Checks::InsecureCookies < Arachni::Check::Base
     def run
         return if page.parsed_url.scheme != 'https'
 
-        page.cookies.each do |cookie|
+        # Page#cookies will also include stuff from the cookiejar, we only want
+        # cookies for this page.
+        (page.dom.cookies | page.parser.cookies).each do |cookie|
             next if cookie.secure? || audited?( cookie.name )
 
-            log( vector: cookie, proof: cookie.source )
+            log( vector: cookie )
             audited( cookie.name )
         end
     end
@@ -29,7 +31,7 @@ Logs cookies that are served over an encrypted channel but without having the
 },
             elements:    [ Element::Cookie ],
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.1.3',
+            version:     '0.1.5',
 
             issue:       {
                 name:            %q{Insecure cookie},

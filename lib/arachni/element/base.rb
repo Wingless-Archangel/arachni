@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -11,6 +11,14 @@ require 'nokogiri'
 module Arachni
 
 module Element
+
+def self.type_to_class( type )
+    Element.constants.each do |c|
+        klass = Element.const_get( c )
+        return klass if klass.respond_to?(:type) && klass.type == type
+    end
+    nil
+end
 
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
 class Error < Arachni::Error
@@ -24,9 +32,13 @@ module Capabilities
     end
 end
 
-# load and include all available capabilities
-lib = File.dirname( __FILE__ ) + '/capabilities/*.rb'
-Dir.glob( lib ).each { |f| require f }
+file = File.dirname( __FILE__ )
+# Need to be loaded in order.
+%w(inputtable submittable mutable auditable analyzable).each do |name|
+    require_relative "#{file}/capabilities/#{name}.rb"
+end
+# Load the rest automatically.
+Dir.glob( "#{file}/capabilities/*.rb" ).each { |f| require f }
 
 # Base class for all element types.
 #
@@ -60,8 +72,6 @@ class Base
     attr_reader   :initialization_options
 
     def initialize( options )
-        options = options.my_symbolize_keys( false )
-
         if !(options[:url] || options[:action])
             fail 'Needs :url or :action option.'
         end
@@ -161,10 +171,16 @@ class Base
     # @return   [Hash]
     #   Data representing this instance that are suitable the RPC transmission.
     def to_rpc_data
-        data = marshal_dump.inject({}) { |h, (k, v)| h[k.to_s.gsub('@', '')] = v.to_rpc_data_or_self; h }
+        data = marshal_dump.inject({}) do |h, (k, v)|
+            h[k.to_s.gsub('@', '')] = v.to_rpc_data_or_self
+            h
+        end
+
         data.delete 'audit_options'
         data.delete 'scope'
-        data['class'] = self.class.to_s
+
+        data['class']                  = self.class.to_s
+        data['initialization_options'] = initialization_options
 
         if data['initialization_options'].is_a? Hash
             data['initialization_options'] =
@@ -183,6 +199,10 @@ class Base
                         when 'dom'
                             next if !value
                             self::DOM.from_rpc_data( value )
+
+                        when 'locator'
+                            next if !value
+                            Browser::ElementLocator.from_rpc_data( value )
 
                         when 'initialization_options'
                             value.is_a?( Hash ) ?

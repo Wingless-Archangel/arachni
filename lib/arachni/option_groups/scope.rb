@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -29,6 +29,14 @@ class Scope < Arachni::OptionGroup
     #
     # @see Page::Scope#dom_depth_limit_reached?
     attr_accessor :dom_depth_limit
+
+    # @note `nil` is infinite -- default is `nil`.
+    #
+    # @return    [Integer]
+    #   How many DOM events to trigger for each snapshot.
+    #
+    # @see Browser#trigger_events
+    attr_accessor :dom_event_limit
 
     # @note `nil` is infinite -- default is `nil`.
     #
@@ -81,6 +89,13 @@ class Scope < Arachni::OptionGroup
     # @see URI::Scope#include?
     attr_accessor :include_path_patterns
 
+    # @return    [Array<String>]
+    #   Extension exclusion patterns, resources whose extension is in the list
+    #   will not be considered.
+    #
+    # @see URI::Scope#exclude_file_extension?
+    attr_accessor :exclude_file_extensions
+
     # @return    [Array<Regexp>]
     #   Path exclusion patterns, resources that match any of the specified
     #   patterns will not be considered.
@@ -132,6 +147,7 @@ class Scope < Arachni::OptionGroup
     set_defaults(
         redundant_path_patterns:  {},
         dom_depth_limit:          5,
+        exclude_file_extensions:  Set.new,
         exclude_path_patterns:    [],
         exclude_content_patterns: [],
         include_path_patterns:    [],
@@ -144,9 +160,24 @@ class Scope < Arachni::OptionGroup
         return @url_rewrites = defaults[:url_rewrites].dup if !rules
 
         @url_rewrites = rules.inject({}) do |h, (regexp, value)|
-            regexp = regexp.is_a?( Regexp ) ? regexp : Regexp.new( regexp.to_s )
+            regexp = regexp.is_a?( Regexp ) ?
+                regexp :
+                Regexp.new( regexp.to_s, Regexp::IGNORECASE )
             h.merge!( regexp => value )
             h
+        end
+    end
+
+    def exclude_file_extensions=( ext )
+        return @exclude_file_extensions =
+            defaults[:exclude_file_extensions].dup if !ext
+
+        if ext.is_a? Set
+            @exclude_file_extensions = ext
+        else
+            @exclude_file_extensions = Set.new(
+                [ext].flatten.compact.map { |s| s.to_s.downcase }
+            )
         end
     end
 
@@ -162,7 +193,9 @@ class Scope < Arachni::OptionGroup
     [ :exclude_content_patterns, :include_path_patterns, :exclude_path_patterns ].each do |m|
         define_method( "#{m}=".to_sym ) do |arg|
             arg = [arg].flatten.compact.
-                map { |s| s.is_a?( Regexp ) ? s : Regexp.new( s.to_s ) }
+                map { |s| s.is_a?( Regexp ) ?
+                s :
+                Regexp.new( s.to_s, Regexp::IGNORECASE ) }
             instance_variable_set( "@#{m}".to_sym, arg )
         end
     end
@@ -191,6 +224,10 @@ class Scope < Arachni::OptionGroup
         page_limit && page_limit.to_i > 0 && count >= page_limit
     end
 
+    def dom_event_limit_reached?( count )
+        dom_event_limit && count >= dom_event_limit
+    end
+
     # Sets the redundancy filters.
     #
     # Filter example:
@@ -209,7 +246,9 @@ class Scope < Arachni::OptionGroup
 
         @redundant_path_patterns =
              filters.inject({}) do |h, (regexp, counter)|
-                 regexp = regexp.is_a?( Regexp ) ? regexp : Regexp.new( regexp.to_s )
+                 regexp = regexp.is_a?( Regexp ) ?
+                     regexp :
+                     Regexp.new( regexp.to_s, Regexp::IGNORECASE )
                  h.merge!( regexp => Integer( counter ) )
                  h
              end
@@ -218,12 +257,14 @@ class Scope < Arachni::OptionGroup
     def to_rpc_data
         d = super
 
+        d['exclude_file_extensions'] = d['exclude_file_extensions'].to_a
+
         %w(redundant_path_patterns url_rewrites).each do |k|
-            d[k] = d[k].my_stringify
+            d[k] = d[k].inject({}) { |h, (k2, v)| h.merge k2.source => v }
         end
 
         %w(exclude_path_patterns exclude_content_patterns include_path_patterns).each do |k|
-            d[k] = d[k].map(&:to_s)
+            d[k] = d[k].map(&:source)
         end
 
         d

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -16,7 +16,6 @@
 # This is a sort of baseline implementation/anomaly detection.
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
-# @version 0.3.1
 class Arachni::Plugins::Discovery < Arachni::Plugin::Base
 
     def run
@@ -31,49 +30,48 @@ class Arachni::Plugins::Discovery < Arachni::Plugin::Base
         # URL path => size of response bodies.
         response_size_per_path  = {}
 
-        processed_issues = 0
+        issue_count_per_path = {}
 
         Data.issues.each do |issue|
             next if !issue.tags.includes_tags?( :discovery )
 
-            issue.variations.each do |variation|
-                # Skip it if already flagged as untrusted.
-                next if variation.untrusted?
+            # Skip it if already flagged as untrusted.
+            next if issue.untrusted?
 
-                processed_issues += 1
+            # We'll do this per path since 404 handlers and such operate per
+            # directory...usually...probably...hopefully.
+            path = File.dirname( uri_parse( issue.vector.action ).path )
 
-                # We'll do this per path since 404 handlers and such operate per
-                # directory...usually...probably...hopefully.
-                path = File.dirname( uri_parse( variation.vector.action ).path )
+            issue_count_per_path[path] ||= 0
+            issue_count_per_path[path]  += 1
 
-                # Gather total response sizes per path.
-                response_size_per_path[path] ||= 0
-                response_size_per_path[path]  += variation.response.body.size
+            # Gather total response sizes per path.
+            response_size_per_path[path] ||= 0
+            response_size_per_path[path]  += issue.response.body.size
 
-                # Categorize issues per path as well.
-                issue_digests_per_path[path] ||= []
-                issue_digests_per_path[path] << variation.digest
+            # Categorize issues per path as well.
+            issue_digests_per_path[path] ||= []
+            issue_digests_per_path[path] << issue.digest
 
-                # Extract the static parts of the responses in order to determine
-                # how much of them doesn't change between requests.
-                #
-                # Large deviations between responses are good because it means that
-                # we're not dealing with some custom not-found response (or something
-                # similar) as these types of responses stay pretty similar.
-                #
-                # On the other hand, valid responses will be dissimilar since the
-                # discovery checks look for different things.
-                diffs_per_path[path] = !diffs_per_path[path] ?
-                    variation.response.body :
-                    diffs_per_path[path].rdiff( variation.response.body )
-            end
+            # Extract the static parts of the responses in order to determine
+            # how much of them doesn't change between requests.
+            #
+            # Large deviations between responses are good because it means that
+            # we're not dealing with some custom not-found response (or something
+            # similar) as these types of responses stay pretty similar.
+            #
+            # On the other hand, valid responses will be dissimilar since the
+            # discovery checks look for different things.
+            diffs_per_path[path] = !diffs_per_path[path] ?
+                issue.response.body :
+                diffs_per_path[path].rdiff( issue.response.body )
         end
 
-        # Not a lot of sense in comparing a single issue with itself.
-        return if processed_issues < 2
-
         diffs_per_path.each_pair do |path, diff|
-            # calculate the similarity ratio of the responses under the current path
+            # Not a lot of sense in comparing a single issue with itself.
+            next if issue_count_per_path[path] <= 1
+
+            # Calculate the similarity ratio of the responses under the current path.
             similarity = Float( diff.size * issue_digests_per_path[path].size ) /
                 response_size_per_path[path]
 
@@ -94,7 +92,7 @@ while the server responses were exhibiting an anomalous factor of similarity.
 There's a good chance that these issues are false positives.
 },
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.3.1',
+            version:     '0.3.3',
             tags:        %w(anomaly discovery file directories meta)
         }
     end

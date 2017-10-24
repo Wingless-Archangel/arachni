@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -35,6 +35,18 @@ class OptionParser < UI::CLI::OptionParser
         end
     end
 
+    def daemon_friendly
+        on( '--daemon-friendly',
+            'Enable this option when running the process in the background.'
+        ) do |b|
+            @daemon_friendly = b
+        end
+    end
+
+    def daemon_friendly?
+        !!@daemon_friendly
+    end
+
     def output
         separator ''
         separator 'Output'
@@ -43,7 +55,7 @@ class OptionParser < UI::CLI::OptionParser
             verbose_on
         end
 
-        on( '--output-debug [LEVEL 1-3]', Integer, 'Show debugging information.' ) do |level|
+        on( '--output-debug [LEVEL 1-4]', Integer, 'Show debugging information.' ) do |level|
             debug_on( level || 1 )
         end
 
@@ -74,6 +86,12 @@ class OptionParser < UI::CLI::OptionParser
                '(Can be used multiple times.)'
         ) do |pattern|
             options.scope.exclude_path_patterns << pattern
+        end
+
+        on( '--scope-exclude-file-extensions EXTENSION,EXTENSION2,..',
+            'Exclude resources with the specified extensions.'
+        ) do |extensions|
+            options.scope.exclude_file_extensions = extensions.split(',')
         end
 
         on( '--scope-exclude-content-pattern PATTERN', Regexp,
@@ -138,8 +156,8 @@ class OptionParser < UI::CLI::OptionParser
 
         on( '--scope-url-rewrite PATTERN:SUBSTITUTION',
             'Rewrite URLs based on the given PATTERN and SUBSTITUTION.',
-            'To convert:  http://test.com/articles/some-stuff/23 to http://test.com/articles.php?id=23',
-            'Use:         /articles\/[\w-]+\/(\d+)/:articles.php?id=\1'
+            'To convert:  http://example.com/articles/some-stuff/23 to http://example.com/articles.php?id=23',
+            'Use:         articles/[\w-]+/(\d+):articles.php?id=\1'
         ) do |rule|
             pattern, substitution = rule.split( ':', 2 )
             options.scope.url_rewrites[ Regexp.new( pattern ) ] =
@@ -152,6 +170,13 @@ class OptionParser < UI::CLI::OptionParser
                "(Setting it to '0' will disable browser analysis.)"
         ) do |limit|
             options.scope.dom_depth_limit = limit
+        end
+
+        on( '--scope-dom-event-limit LIMIT', Integer,
+            'How many DOM events to trigger for each DOM depth, for pages with JavaScript code.',
+            "(Default: #{options.scope.dom_event_limit.nil? ? 'inf' : options.scope.dom_event_limit })",
+        ) do |limit|
+            options.scope.dom_event_limit = limit
         end
 
         on( '--scope-https-only', 'Forces the system to only follow HTTPS URLs.',
@@ -191,9 +216,9 @@ class OptionParser < UI::CLI::OptionParser
         on( '--audit-link-template TEMPLATE', Regexp,
             'Regular expression with named captures to use to extract input information from generic paths.',
             "To extract the 'input1' and 'input2' inputs from:",
-            '  http://test.com/input1/value1/input2/value2',
+            '  http://example.com/input1/value1/input2/value2',
             'Use:',
-            '  /input1\/(?<input1>\w+)\/input2\/(?<input2>\w+)/',
+            '  input1/(?<input1>\w+)/input2/(?<input2>\w+)',
             '(Can be used multiple times.)'
         ) do |pattern|
             # We merge this way to enforce validation from the options group.
@@ -208,10 +233,25 @@ class OptionParser < UI::CLI::OptionParser
             options.audit.xmls = true
         end
 
+        on( '--audit-ui-inputs', 'Audit orphan <input> elements with events.' ) do
+            options.audit.ui_inputs = true
+        end
+
+        on( '--audit-ui-forms', 'Audit UI Forms.',
+            'Input and button groups that do not belong to a parent <form> element.' ) do
+            options.audit.ui_forms = true
+        end
+
         on( '--audit-parameter-names',
             'Inject payloads into parameter names.'
         ) do
             options.audit.parameter_names = true
+        end
+
+        on( '--audit-with-raw-payloads',
+            'Inject payloads with and without HTTP encoding.'
+        ) do
+            options.audit.with_raw_payloads = true
         end
 
         on( '--audit-with-extra-parameter',
@@ -228,7 +268,7 @@ class OptionParser < UI::CLI::OptionParser
         end
 
         on( '--audit-exclude-vector PATTERN', Regexp,
-               'Exclude input vectorS whose name matches PATTERN.',
+               'Exclude input vectors whose name matches PATTERN.',
                '(Can be used multiple times.)' ) do |name|
             options.audit.exclude_vector_patterns << name
         end
@@ -305,7 +345,8 @@ class OptionParser < UI::CLI::OptionParser
         end
 
         on( '--http-cookie-string COOKIE',
-               "Cookie representation as an 'Cookie' HTTP request header."
+               "Cookie representation as a 'Set-Cookie' HTTP response header.",
+               'Example: my_cookie=my_value; Path=/, other_cookie=other_value; Path=/test'
         ) do |cookie|
             options.http.cookie_string = cookie
         end
@@ -318,6 +359,11 @@ class OptionParser < UI::CLI::OptionParser
         on( '--http-authentication-password PASSWORD',
                'Password for HTTP authentication.' ) do |password|
             options.http.authentication_password = password
+        end
+
+        on( "--http-authentication-type #{OptionGroups::HTTP::AUTHENTICATION_TYPES.join(',')}",
+            'HTTP authentication type.', '(Default: auto)' ) do |type|
+            options.http.authentication_type = type
         end
 
         on( '--http-proxy ADDRESS:PORT', 'Proxy to use.' ) do |url|
@@ -357,7 +403,7 @@ class OptionParser < UI::CLI::OptionParser
         end
 
         on( '--http-ssl-key PATH', 'SSL private key to use.' ) do |file|
-            options.http.ssl_key = file
+            options.http.ssl_key_filepath = file
         end
 
         on( "--http-ssl-key-type #{OptionGroups::HTTP::SSL_KEY_TYPES.join(',')}",
@@ -394,9 +440,9 @@ class OptionParser < UI::CLI::OptionParser
         separator ''
         separator 'Checks'
 
-        on( '--checks-list [PATTERN]', Regexp,
-               'List available checks based on the provided pattern.',
-               '(If no pattern is provided all checks will be listed.)'
+        on( '--checks-list [GLOB]',
+               'List available checks based on the provided glob.',
+               '(If no glob is provided all checks will be listed.)'
         ) do |pattern|
             list_checks( framework.list_checks( pattern ) )
             exit
@@ -425,9 +471,9 @@ class OptionParser < UI::CLI::OptionParser
         separator ''
         separator 'Plugins'
 
-        on( '--plugins-list [PATTERN]', Regexp,
-               'List available plugins based on the provided pattern.',
-               '(If no pattern is provided all plugins will be listed.)'
+        on( '--plugins-list [GLOB]',
+               'List available plugins based on the provided glob.',
+               '(If no glob is provided all plugins will be listed.)'
         ) do |pattern|
             list_plugins( framework.list_plugins( pattern ) )
             exit
@@ -521,6 +567,12 @@ class OptionParser < UI::CLI::OptionParser
         separator ''
         separator 'Browser cluster'
 
+        on( '--browser-cluster-local-storage FILE',
+            "Sets the browsers' local storage using the JSON data in FILE."
+        ) do |file|
+            options.browser_cluster.local_storage = ::JSON.load( IO.read( file ) )
+        end
+
         on( '--browser-cluster-wait-for-element PATTERN:CSS',
             'Wait for element matching CSS to appear when visiting a page whose' <<
             ' URL matches the PATTERN.'
@@ -577,8 +629,7 @@ class OptionParser < UI::CLI::OptionParser
         on( '--profile-save-filepath FILEPATH', String,
                'Save the current configuration profile/options to FILEPATH.'
         ) do |filepath|
-            save_profile( filepath )
-            exit 0
+            @save_profile_path = filepath
         end
 
         on( '--profile-load-filepath FILEPATH', String,
@@ -642,6 +693,11 @@ class OptionParser < UI::CLI::OptionParser
     end
 
     def after_parse
+        if @save_profile_path
+            save_profile( @save_profile_path )
+            exit 0
+        end
+
         options.url = ARGV.shift
     rescue Options::Error::InvalidURL => e
         print_bad e

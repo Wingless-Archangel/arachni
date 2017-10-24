@@ -15,21 +15,21 @@ describe Arachni::URI::Scope do
             context "less than #{Arachni::OptionGroups::Scope}#directory_depth_limit" do
                 it 'returns false' do
                     scope.directory_depth_limit = 100
-                    subject.too_deep?.should be_false
+                    expect(subject.too_deep?).to be_falsey
                 end
             end
 
             context "less than #{Arachni::OptionGroups::Scope}#directory_depth_limit" do
                 it 'returns true' do
                     scope.directory_depth_limit = 2
-                    subject.too_deep?.should be_true
+                    expect(subject.too_deep?).to be_truthy
                 end
             end
         end
 
         context "when #{Arachni::OptionGroups::Scope}#directory_depth_limit has not been configured" do
             it 'returns false' do
-                subject.too_deep?.should be_false
+                expect(subject.too_deep?).to be_falsey
             end
         end
     end
@@ -43,10 +43,10 @@ describe Arachni::URI::Scope do
                     scope.redundant_path_patterns = { /match_this/ => 10 }
 
                     10.times do
-                        subject.redundant?( true ).should be_false
+                        expect(subject.redundant?( true )).to be_falsey
                     end
 
-                    scope.redundant_path_patterns[/match_this/].should == 0
+                    expect(scope.redundant_path_patterns[/match_this/]).to eq(0)
                 end
             end
 
@@ -55,10 +55,10 @@ describe Arachni::URI::Scope do
                     scope.redundant_path_patterns = { /match_this/ => 10 }
 
                     10.times do
-                        subject.redundant?.should be_false
+                        expect(subject.redundant?).to be_falsey
                     end
 
-                    scope.redundant_path_patterns[/match_this/].should == 10
+                    expect(scope.redundant_path_patterns[/match_this/]).to eq(10)
                 end
             end
 
@@ -67,10 +67,10 @@ describe Arachni::URI::Scope do
                     scope.redundant_path_patterns = { /match_this/ => 10 }
 
                     10.times do
-                        subject.redundant?.should be_false
+                        expect(subject.redundant?).to be_falsey
                     end
 
-                    scope.redundant_path_patterns[/match_this/].should == 10
+                    expect(scope.redundant_path_patterns[/match_this/]).to eq(10)
                 end
             end
         end
@@ -80,10 +80,10 @@ describe Arachni::URI::Scope do
                 scope.redundant_path_patterns = { /match_this/ => 10 }
 
                 10.times do
-                    subject.redundant?( true ).should be_false
+                    expect(subject.redundant?( true )).to be_falsey
                 end
 
-                subject.redundant?( true ).should be_true
+                expect(subject.redundant?( true )).to be_truthy
             end
         end
         context "when a URL's counter has not reached 0" do
@@ -91,17 +91,17 @@ describe Arachni::URI::Scope do
                 scope.redundant_path_patterns = { /match_this/ => 11 }
 
                 10.times do
-                    subject.redundant?( true ).should be_false
+                    expect(subject.redundant?( true )).to be_falsey
                 end
 
-                subject.redundant?( true ).should be_false
+                expect(subject.redundant?( true )).to be_falsey
             end
         end
 
         context 'when #auto_redundant returns true' do
             it 'returns true' do
-                subject.stub(:auto_redundant?) { true }
-                subject.should be_redundant
+                allow(subject).to receive(:auto_redundant?) { true }
+                expect(subject).to be_redundant
             end
         end
     end
@@ -114,12 +114,12 @@ describe Arachni::URI::Scope do
                 it 'decrements the counters' do
                     scope.auto_redundant_paths = 10
 
-                    subject.auto_redundant?( true ).should be_false
+                    expect(subject.auto_redundant?( true )).to be_falsey
                     9.times do
-                        subject.auto_redundant?( true ).should be_false
+                        expect(subject.auto_redundant?( true )).to be_falsey
                     end
 
-                    subject.auto_redundant?.should be_true
+                    expect(subject.auto_redundant?).to be_truthy
                 end
             end
 
@@ -127,12 +127,12 @@ describe Arachni::URI::Scope do
                 it 'does not decrement the counters' do
                     scope.auto_redundant_paths = 10
 
-                    subject.auto_redundant?( false ).should be_false
+                    expect(subject.auto_redundant?( false )).to be_falsey
                     9.times do
-                        subject.auto_redundant?( false ).should be_false
+                        expect(subject.auto_redundant?( false )).to be_falsey
                     end
 
-                    subject.auto_redundant?( false ).should_not be_true
+                    expect(subject.auto_redundant?( false )).not_to be_truthy
                 end
             end
 
@@ -140,12 +140,12 @@ describe Arachni::URI::Scope do
                 it 'does not decrement the counters' do
                     scope.auto_redundant_paths = 10
 
-                    subject.auto_redundant?.should be_false
+                    expect(subject.auto_redundant?).to be_falsey
                     9.times do
-                        subject.auto_redundant?.should be_false
+                        expect(subject.auto_redundant?).to be_falsey
                     end
 
-                    subject.auto_redundant?.should_not be_true
+                    expect(subject.auto_redundant?).not_to be_truthy
                 end
             end
         end
@@ -154,18 +154,18 @@ describe Arachni::URI::Scope do
             it 'returns true' do
                 scope.auto_redundant_paths = 10
 
-                subject.auto_redundant?( true ).should be_false
+                expect(subject.auto_redundant?( true )).to be_falsey
                 9.times do
-                    subject.auto_redundant?( true ).should be_false
+                    expect(subject.auto_redundant?( true )).to be_falsey
                 end
 
-                subject.auto_redundant?( true ).should be_true
+                expect(subject.auto_redundant?( true )).to be_truthy
             end
         end
 
         describe 'by default' do
             it 'returns false' do
-                subject.auto_redundant?.should be_false
+                expect(subject.auto_redundant?).to be_falsey
             end
         end
 
@@ -175,7 +175,7 @@ describe Arachni::URI::Scope do
             it 'returns false' do
                 scope.auto_redundant_paths = 1
                 3.times do
-                    subject.auto_redundant?.should be_false
+                    expect(subject.auto_redundant?).to be_falsey
                 end
             end
         end
@@ -188,7 +188,7 @@ describe Arachni::URI::Scope do
             it 'returns true' do
                 scope.exclude_path_patterns = [ /exclude/ ]
 
-                subject.exclude?.should be_true
+                expect(subject.exclude?).to be_truthy
             end
         end
 
@@ -196,7 +196,51 @@ describe Arachni::URI::Scope do
             it 'returns false' do
                 scope.exclude_path_patterns = [ /boo/ ]
 
-                subject.exclude?.should be_false
+                expect(subject.exclude?).to be_falsey
+            end
+        end
+
+        context 'when #exclude_file_extension?' do
+            context 'is true' do
+                before do
+                    expect(subject).to receive(:exclude_file_extension?).and_return( true )
+                end
+
+                it 'returns true' do
+                    expect(subject.exclude?).to be_truthy
+                end
+            end
+        end
+
+        context 'when #exclude_file_extension?' do
+            context 'is false' do
+                before do
+                    expect(subject).to receive(:exclude_file_extension?).and_return( false )
+                end
+
+                it 'returns false' do
+                    expect(subject.exclude?).to be_falsey
+                end
+            end
+        end
+    end
+
+    describe '#exclude_file_extension?' do
+        subject { Arachni::URI.parse( 'http://test.com/exclude.gif' ).scope }
+
+        context 'when self matches the provided exclude rules' do
+            it 'returns true' do
+                scope.exclude_file_extensions = [ 'gif' ]
+
+                expect(subject.exclude?).to be_truthy
+            end
+        end
+
+        context 'when self does not match the provided exclude rules' do
+            it 'returns false' do
+                scope.exclude_file_extensions = [ 'gi' ]
+
+                expect(subject.exclude?).to be_falsey
             end
         end
     end
@@ -207,14 +251,14 @@ describe Arachni::URI::Scope do
         context 'when self matches the provided include rules in' do
             it 'returns true' do
                 scope.include_path_patterns = [ /include/ ]
-                subject.include?.should be_true
+                expect(subject.include?).to be_truthy
             end
         end
 
         context 'when self does not match the provided scope_include_path_patterns rules in' do
             it 'returns false' do
                 scope.include_path_patterns = [ /boo/ ]
-                subject.include?.should be_false
+                expect(subject.include?).to be_falsey
             end
         end
     end
@@ -231,7 +275,7 @@ describe Arachni::URI::Scope do
         let(:without_subdomain) { Arachni::URI.parse( url_without_subdomain ).scope }
 
         context "when #{Arachni::OptionGroups::Scope}#include_subdomains is" do
-            context true do
+            context 'true' do
                 before :each do
                     scope.include_subdomains = true
                 end
@@ -244,19 +288,19 @@ describe Arachni::URI::Scope do
 
                         context 'and the url has a different subdomain' do
                             it 'return true' do
-                                with_different_subdomain.in_domain?.should be_true
+                                expect(with_different_subdomain.in_domain?).to be_truthy
                             end
                         end
 
                         context 'and the url has the same subdomain' do
                             it 'return true' do
-                                with_same_subdomain.in_domain?.should be_true
+                                expect(with_same_subdomain.in_domain?).to be_truthy
                             end
                         end
 
                         context 'and the url has no subdomain' do
                             it 'return true' do
-                                without_subdomain.in_domain?.should be_true
+                                expect(without_subdomain.in_domain?).to be_truthy
                             end
                         end
                     end
@@ -268,20 +312,20 @@ describe Arachni::URI::Scope do
 
                         context 'and the url has a subdomain' do
                             it 'return true' do
-                                with_subdomain.in_domain?.should be_true
+                                expect(with_subdomain.in_domain?).to be_truthy
                             end
                         end
 
                         context 'and the url has no subdomain' do
                             it 'return true' do
-                                without_subdomain.in_domain?.should be_true
+                                expect(without_subdomain.in_domain?).to be_truthy
                             end
                         end
                     end
                 end
             end
 
-            context false do
+            context 'false' do
                 before :each do
                     scope.include_subdomains = false
                 end
@@ -294,19 +338,19 @@ describe Arachni::URI::Scope do
 
                         context 'and the url has a different subdomain' do
                             it 'return false' do
-                                with_different_subdomain.in_domain?.should be_false
+                                expect(with_different_subdomain.in_domain?).to be_falsey
                             end
                         end
 
                         context 'and the url has the same subdomain' do
                             it 'return true' do
-                                with_same_subdomain.in_domain?.should be_true
+                                expect(with_same_subdomain.in_domain?).to be_truthy
                             end
                         end
 
                         context 'and the url has no subdomain' do
                             it 'return false' do
-                                without_subdomain.in_domain?.should be_false
+                                expect(without_subdomain.in_domain?).to be_falsey
                             end
                         end
                     end
@@ -318,13 +362,13 @@ describe Arachni::URI::Scope do
 
                         context 'and the url has a subdomain' do
                             it 'return false' do
-                                with_subdomain.in_domain?.should be_false
+                                expect(with_subdomain.in_domain?).to be_falsey
                             end
                         end
 
                         context 'and the url has no subdomain' do
                             it 'return true' do
-                                without_subdomain.in_domain?.should be_true
+                                expect(without_subdomain.in_domain?).to be_truthy
                             end
                         end
                     end
@@ -347,17 +391,17 @@ describe Arachni::URI::Scope do
                 context 'and the checked URL uses' do
                     context 'HTTPS' do
                         context 'and Options#scope_https_only is' do
-                            context true do
+                            context 'true' do
                                 it 'returns true' do
                                     scope.https_only = true
-                                    https.follow_protocol?.should be_true
+                                    expect(https.follow_protocol?).to be_truthy
                                 end
                             end
 
-                            context false do
+                            context 'false' do
                                 it 'returns true' do
                                     scope.https_only = false
-                                    https.follow_protocol?.should be_true
+                                    expect(https.follow_protocol?).to be_truthy
                                 end
                             end
                         end
@@ -365,17 +409,17 @@ describe Arachni::URI::Scope do
 
                     context 'HTTP' do
                         context 'and Options#scope_https_only is' do
-                            context true do
+                            context 'true' do
                                 it 'returns false' do
                                     scope.https_only = true
-                                    http.follow_protocol?.should be_false
+                                    expect(http.follow_protocol?).to be_falsey
                                 end
                             end
 
-                            context false do
+                            context 'false' do
                                 it 'returns true' do
                                     scope.https_only = false
-                                    http.follow_protocol?.should be_true
+                                    expect(http.follow_protocol?).to be_truthy
                                 end
                             end
                         end
@@ -391,34 +435,34 @@ describe Arachni::URI::Scope do
                 context 'and the checked URL uses' do
                     context 'HTTPS' do
                         context 'and Options#scope_https_only is' do
-                            context true do
+                            context 'true' do
                                 it 'returns true' do
                                     scope.https_only = true
-                                    https.follow_protocol?.should be_true
+                                    expect(https.follow_protocol?).to be_truthy
                                 end
                             end
 
-                            context false do
+                            context 'false' do
                                 it 'returns true' do
                                     scope.https_only = false
-                                    https.follow_protocol?.should be_true
+                                    expect(https.follow_protocol?).to be_truthy
                                 end
                             end
                         end
                     end
                     context 'HTTP' do
                         context 'and Options#scope_https_only is' do
-                            context true do
+                            context 'true' do
                                 it 'returns true' do
                                     scope.https_only = true
-                                    http.follow_protocol?.should be_true
+                                    expect(http.follow_protocol?).to be_truthy
                                 end
                             end
 
-                            context false do
+                            context 'false' do
                                 it 'returns true' do
                                     scope.https_only = false
-                                    http.follow_protocol?.should be_true
+                                    expect(http.follow_protocol?).to be_truthy
                                 end
                             end
                         end
@@ -432,14 +476,14 @@ describe Arachni::URI::Scope do
         subject { Arachni::URI.parse( 'http://stuff/' ).scope }
 
         it 'returns true' do
-            subject.should be_in
+            expect(subject).to be_in
         end
 
         context 'when #out?' do
             context 'is true' do
                 it 'returns false' do
-                    subject.stub(:out?) { true }
-                    subject.should_not be_in
+                    allow(subject).to receive(:out?) { true }
+                    expect(subject).not_to be_in
                 end
             end
         end
@@ -449,19 +493,19 @@ describe Arachni::URI::Scope do
         subject { Arachni::URI.parse( 'http://stuff/' ).scope }
 
         it 'returns false' do
-            subject.should_not be_out
+            expect(subject).not_to be_out
         end
 
         it 'does not call #redundant?' do
-            subject.should_not receive(:redundant?)
+            expect(subject).not_to receive(:redundant?)
             subject.out?
         end
 
         context 'when #follow_protocol?' do
             context 'is false' do
                 it 'returns true' do
-                    subject.stub(:follow_protocol?) { false }
-                    subject.should be_out
+                    allow(subject).to receive(:follow_protocol?) { false }
+                    expect(subject).to be_out
                 end
             end
         end
@@ -469,8 +513,8 @@ describe Arachni::URI::Scope do
         context 'when #in_domain?' do
             context 'is false' do
                 it 'returns true' do
-                    subject.stub(:in_domain?) { false }
-                    subject.should be_out
+                    allow(subject).to receive(:in_domain?) { false }
+                    expect(subject).to be_out
                 end
             end
         end
@@ -478,8 +522,8 @@ describe Arachni::URI::Scope do
         context 'when #too_deep?' do
             context 'is true' do
                 it 'returns true' do
-                    subject.stub(:too_deep?) { true }
-                    subject.should be_out
+                    allow(subject).to receive(:too_deep?) { true }
+                    expect(subject).to be_out
                 end
             end
         end
@@ -487,8 +531,8 @@ describe Arachni::URI::Scope do
         context 'when #include?' do
             context 'is false' do
                 it 'returns true' do
-                    subject.stub(:include?) { false }
-                    subject.should be_out
+                    allow(subject).to receive(:include?) { false }
+                    expect(subject).to be_out
                 end
             end
         end
@@ -496,8 +540,8 @@ describe Arachni::URI::Scope do
         context 'when #exclude?' do
             context 'is true' do
                 it 'returns true' do
-                    subject.stub(:exclude?) { true }
-                    subject.should be_out
+                    allow(subject).to receive(:exclude?) { true }
+                    expect(subject).to be_out
                 end
             end
         end

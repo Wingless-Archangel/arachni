@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -44,12 +44,33 @@ class Job
     # @see #forward_as
     attr_accessor :forwarder
 
+    # @return   [Integer]
+    #   Duration of the job, in seconds.
+    attr_accessor :time
+
+    attr_accessor :args
+
     # @param    [Hash]  options
     def initialize( options = {} )
         @options      = options.dup
         @options[:id] = @id = options.delete(:id) || increment_id
 
+        @args = @options[:args] || []
+
         options.each { |k, v| options[k] = send( "#{k}=", v ) }
+    end
+
+    # @param    [Integer]   time
+    #   Amount of {#time} elapsed until time-out.
+    def timed_out!( time )
+        @timed_out = true
+        @time = time
+    end
+
+    # @return   [Bool]
+    #   `true` if timed-ot, `false` otherwise.
+    def timed_out?
+        !!@timed_out
     end
 
     # @note The following resources will be available at the time of execution:
@@ -121,7 +142,10 @@ class Job
     # @return   [Job]
     #   Copy of `self`
     def dup
-        self.class.new add_id( @options )
+        n = self.class.new( add_id( @options ) )
+        n.time = time
+        n.timed_out!( time ) if timed_out?
+        n
     end
 
     # @param    [Hash]  options
@@ -143,7 +167,9 @@ class Job
     #   Forwarded request (preserving its {#id} and thus its callback as well),
     #   configured with the given `options`.
     def forward_as( job_type, options = {} )
-        job_type.new forward_options( options )
+        # Remove the ID because this will be a different class/job type and
+        # we thus need to keep track of it separately in the BrowserCluster.
+        job_type.new forward_options( options ).tap { |h| h.delete :id }
     end
 
     # @return   [Integer]
@@ -170,6 +196,7 @@ class Job
 
     def forward_options( options )
         add_id( options ).merge(
+            args:         args,
             never_ending: never_ending?,
             forwarder:    self.clean_copy
         )

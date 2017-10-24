@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -39,6 +39,23 @@ class Framework
         @show_command_screen = nil
         @cleanup_handler     = nil
 
+        if Signal.list.include?( 'USR1' )
+            # Step into a pry session for debugging.
+            trap( 'USR1' ) do
+                Thread.new do
+                    require 'pry'
+
+                    mute
+                    clear_screen
+
+                    pry
+
+                    clear_screen
+                    unmute
+                end
+            end
+        end
+
         trap( 'INT' ) do
             hide_command_screen
             clear_screen
@@ -54,7 +71,8 @@ class Framework
     def run
         print_status 'Initializing...'
 
-        get_user_command
+        # Won't work properly on MS Windows or when running in background.
+        get_user_command if !Arachni.windows? && !@daemon_friendly
 
         begin
             # We may need to kill the audit so put it in a thread.
@@ -115,10 +133,12 @@ class Framework
 
     def print_statistics( unmute = false )
         statistics = @framework.statistics
-        http = statistics[:http]
+
+        http            = statistics[:http]
+        browser_cluster = statistics[:browser_cluster]
 
         refresh_line nil, unmute
-        refresh_info( "Audited #{statistics[:audited_pages]} pages.", unmute )
+        refresh_info( "Audited #{statistics[:audited_pages]} page snapshots.", unmute )
 
         if @framework.options.scope.page_limit
             refresh_info( 'Audit limited to a max of ' <<
@@ -127,22 +147,29 @@ class Framework
 
         refresh_line nil, unmute
 
-        refresh_info( "Sent #{statistics[:http][:request_count]} requests.", unmute )
-        refresh_info( "Received and analyzed #{statistics[:http][:response_count]} responses.", unmute )
-        refresh_info( "In #{seconds_to_hms( statistics[:runtime] )}", unmute )
+        refresh_info( "Duration: #{seconds_to_hms( statistics[:runtime] )}", unmute )
 
-        avg = "Average: #{http[:total_responses_per_second].to_s} requests/second."
+        res_req = "#{statistics[:http][:response_count]}/#{statistics[:http][:request_count]}"
+        refresh_info( "Processed #{res_req} HTTP requests.", unmute )
+
+        avg = "-- #{http[:total_responses_per_second].round(3)} requests/second."
         refresh_info( avg, unmute )
+
+        jobs = "#{browser_cluster[:completed_job_count]}/#{browser_cluster[:queued_job_count]}"
+        refresh_info( "Processed #{jobs} browser jobs.", unmute )
+
+        jobsps = "-- #{browser_cluster[:seconds_per_job].round(3)} second/job."
+        refresh_info( jobsps, unmute )
 
         refresh_line nil, unmute
         if !statistics[:current_page].to_s.empty?
             refresh_info( "Currently auditing          #{statistics[:current_page]}", unmute )
         end
 
-        refresh_info( "Burst response time sum     #{http[:burst_response_time_sum]} seconds", unmute )
+        refresh_info( "Burst response time sum     #{http[:burst_response_time_sum].round(3)} seconds", unmute )
         refresh_info( "Burst response count        #{http[:burst_response_count]}", unmute )
-        refresh_info( "Burst average response time #{http[:burst_average_response_time]} seconds", unmute )
-        refresh_info( "Burst average               #{http[:burst_responses_per_second]} requests/second", unmute )
+        refresh_info( "Burst average response time #{http[:burst_average_response_time].round(3)} seconds", unmute )
+        refresh_info( "Burst average               #{http[:burst_responses_per_second].round(3)} requests/second", unmute )
         refresh_info( "Timed-out requests          #{http[:time_out_count]}", unmute )
         refresh_info( "Original max concurrency    #{options.http.request_concurrency}", unmute )
         refresh_info( "Throttled max concurrency   #{http[:max_concurrency]}", unmute )
@@ -194,7 +221,7 @@ class Framework
                         'g'     => 'generate a report',
                         'v'     => "#{verbose? ? 'dis' : 'en'}able verbose messages",
                         'd'     => "#{debug? ? 'dis' : 'en'}able debugging messages.\n" <<
-                            "#{' ' * 11}(You can set it to the desired level by sending d[1-3]," <<
+                            "#{' ' * 11}(You can set it to the desired level by sending d[1-4]," <<
                             " current level is #{debug_level})"
                     }.each do |key, action|
                         next if %w(Enter s p).include?( key ) && !@framework.scanning?
@@ -379,6 +406,7 @@ class Framework
     def parse_options
         parser = OptionParser.new
 
+        parser.daemon_friendly
         parser.authorized_by
         parser.output
         parser.scope
@@ -399,6 +427,8 @@ class Framework
 
         @timeout         = parser.get_timeout
         @timeout_suspend = parser.timeout_suspend?
+
+        @daemon_friendly = parser.daemon_friendly?
 
         if options.checks.any?
             begin
@@ -450,13 +480,15 @@ class Framework
         if !options.audit.links? && !options.audit.forms? &&
             !options.audit.cookies? && !options.audit.headers? &&
             !options.audit.link_templates? && !options.audit.jsons? &&
-            !options.audit.xmls?
+            !options.audit.xmls? && !options.audit.ui_inputs? &&
+            !options.audit.ui_forms?
 
             print_info 'No element audit options were specified, will audit ' <<
-                           'links, forms, cookies, JSONs and XMLs.'
+                           'links, forms, cookies, UI inputs, UI forms, JSONs and XMLs.'
             print_line
 
-            options.audit.elements :links, :forms, :cookies, :jsons, :xmls
+            options.audit.elements :links, :forms, :cookies, :ui_inputs,
+                                   :ui_forms, :jsons, :xmls
         end
     end
 

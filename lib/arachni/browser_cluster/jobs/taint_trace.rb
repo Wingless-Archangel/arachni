@@ -1,12 +1,12 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
     web site for more information on licensing and terms of use.
 =end
 
-require_relative 'resource_exploration'
+require_relative 'dom_exploration'
 
 module Arachni
 class BrowserCluster
@@ -19,7 +19,7 @@ module Jobs
 # It will pass each evaluated page with the {TaintTrace::Result result}.
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
-class TaintTrace < ResourceExploration
+class TaintTrace < DOMExploration
 
     require_relative 'taint_trace/result'
     require_relative 'taint_trace/event_trigger'
@@ -42,8 +42,9 @@ class TaintTrace < ResourceExploration
     end
 
     def to_s
-        "#<#{self.class}:#{object_id} @resource=#{@resource} " +
-            "@taint=#{@taint.inspect} @injector=#{@injector.inspect}>"
+        "#<#{self.class}:#{object_id} @resource=#{@resource} " <<
+            "@taint=#{@taint.inspect} @injector=#{@injector.inspect} " <<
+            "time=#{@time} timed_out=#{timed_out?}>"
     end
     alias :inspect :to_s
 

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -18,7 +18,10 @@ class XML < Base
     lib = "#{File.dirname( __FILE__ )}/#{File.basename(__FILE__, '.rb')}/capabilities/**/*.rb"
     Dir.glob( lib ).each { |f| require f }
 
-    # Generic element capabilities.
+    include Arachni::Element::Capabilities::Auditable
+    include Arachni::Element::Capabilities::Auditable::Buffered
+    include Arachni::Element::Capabilities::Auditable::LineBuffered
+    include Arachni::Element::Capabilities::Submittable
     include Arachni::Element::Capabilities::Analyzable
     include Arachni::Element::Capabilities::WithSource
 
@@ -59,7 +62,7 @@ class XML < Base
     #
     #   If a {#transform_xml} callback has been set, it will return its value.
     def to_xml
-        doc = Nokogiri::XML( source )
+        doc = Arachni::Parser.parse_xml( source ).dup
 
         inputs.each do |path, content|
             doc.css( path ).each do |node|
@@ -86,17 +89,11 @@ class XML < Base
         { self.action => self.inputs }
     end
 
-    # @param   (see .encode)
-    # @return  (see .encode)
-    #
     # @see .encode
     def encode( *args )
         self.class.encode( *args )
     end
 
-    # @param   (see .decode)
-    # @return  (see .decode)
-    #
     # @see .decode
     def decode( *args )
         self.class.decode( *args )
@@ -152,7 +149,7 @@ class XML < Base
         end
 
         def parse_inputs( doc )
-            doc = doc.is_a?( Nokogiri::XML ) ? doc : Nokogiri::XML( doc )
+            doc = doc.is_a?( Nokogiri::XML ) ? doc : Arachni::Parser.parse_xml( doc )
 
             inputs = {}
             doc.traverse do |node|

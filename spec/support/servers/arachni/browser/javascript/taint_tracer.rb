@@ -30,6 +30,46 @@ get '/angular-route.js' do
     IO.read "#{JS_LIB}/angular-route.js"
 end
 
+get '/data_trace/taint_depth/4' do
+    <<HTML
+<html>
+    <head>
+        <script>
+            function process( data ) {}
+            process(
+                {
+                    d2: [
+                        '#{params[:taint]}'
+                    ],
+                }
+            );
+        </script>
+    <head>
+</html>
+HTML
+end
+
+get '/data_trace/taint_depth/5' do
+    <<HTML
+<html>
+    <head>
+        <script>
+            function process( data ) {}
+            process(
+                {
+                    d2: [
+                        d4: {
+                            '#{params[:taint]}'
+                        }
+                    ],
+                }
+            );
+        </script>
+    <head>
+</html>
+HTML
+end
+
 get '/data_trace/XMLHttpRequest.open' do
     <<HTML
 <html>
@@ -227,9 +267,7 @@ get '/data_trace/AngularJS/ngRoute/' do
 
     <script>
         angular.element(document).ready(function() {
-            angular.element(document).scope().$apply(function() {
-                console.log( $http )
-            });
+            angular.element(document).scope().$apply(function() {});
         });
     </script>
 </html>
@@ -747,6 +785,20 @@ get '/debug' do
 
         <form id="my_form" onsubmit="onClick('some-arg', 'arguments-arg', 'here-arg'); return false;">
         </form>
+    </html>
+    EOHTML
+end
+
+get '/eval' do
+    <<-EOHTML
+    <html>
+        <script>
+            function run() {
+                return #{params[:input]};
+            }
+
+            run( 1, 2 );
+        </script>
     </html>
     EOHTML
 end

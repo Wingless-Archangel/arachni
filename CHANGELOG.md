@@ -1,5 +1,356 @@
 # ChangeLog
 
+## 1.5.1 _(March 29, 2017)_
+
+- `config/write_paths.yml` -- Added configurable temporary directory.
+- `Parser`
+    - `#document` -- Updated to lazy parse the document.
+- `Browser`
+    - `Javascript`
+        - `DOMMonitor` -- Don't track `setInterval()`s since we're not using them.
+        - `TaintTracer`
+            - `add_trace_to_function()` -- Catch and return on error.
+- Path extractors
+    - `scripts` -- Fixed `nil` error.
+- Plugins
+    - `metrics` -- Fixed type error due to race condition.
+
+## 1.5 _(January 31, 2017)_
+
+- Executables
+    - `arachni_rpcd_monitor` -- Brought up to date with Dispatcher refactoring.
+    - New
+        - `arachni_reproduce` -- Reproduces the issues in the given report.
+- Options
+    - `url` -- Raise error on addresses starting with `127.` because
+        PhantomJS 2.1.1 doesn't proxy any loopback connections.
+    - `--http-cookie-string` -- Updated to only accept `Set-Cookie` formatted
+        cookies instead of `Cookie` ones.
+    - `--browser-cluster-job-timeout`
+        - Repurposed to apply to communication requests for Selenium rather than
+            the entire job.
+        - Lowered to `10` seconds.
+    - New
+        - `--http-authentication-type`
+            - `auto` -- Default
+            - `basic`
+            - `digest`
+            - `digest_ie`
+            - `negotiate`
+            - `ntlm`
+        - `--scope-dom-event-limit` -- Limits the amount of DOM events to be
+            triggered for each DOM depth.
+        - `--daemon-friendly` -- Disables status screen.
+- `UI`
+    - `CLI`
+        - `Framework` -- Trap `USR1` signal and go into a `pry` session for debugging.
+- `URI`
+    - `.fast_parse` --- Ignore `data:` URIs.
+- `HTTP`
+    - `ProxyServer`
+        - Fixed state of abruptly closed SSL interceptor connections leading to
+            frozen browser operations.
+        - Added support for configurable concurrency of origin requests to keep
+            the amount of `Thread`s low.
+        - Added support for `Connection: Upgrade` requests by tunneling WebSocket
+            connections.
+    - `Client`
+        - Added `X-Arachni-Scan-Seed` header that includes the random scan seed.
+        - `Dynamic404Handler`
+            - Added more training scenarios for when:
+                - Dashes are used as routing separators.
+                - Directory name prepending and appending is ignored.
+            - Updated to not dismiss redirects but follow the location.
+- `Browser`
+    - Updated engine to PhantomJS 2.1.1.
+    - Remove `Content-Security-Policy` to allow the Arachni JS env to run.
+    - `#snapshot_id` -- Moved to browser-side `DOMMonitor` for better performance.
+    - `#capture` -- Extract query parameters from `POST` requests.
+    - `#capture_snapshot` -- Deduplicate based on DOM URL and transitions as well.
+    - `ElementLocator` -- Fixed bug causing broken CSS selectors with UTF8 characters.
+    - `Javascript`
+        - `#dom_elements_with_events`
+            - Moved code to browser-side `DOMMonitor`.
+            - Updated it to return results in batches, in order to keep RAM
+                usage under control when processing large pages with thousands
+                of elements with events.
+- `BrowserCluster`
+    - `Worker`
+        - `#run_job` -- Retry 5 times on job time-outs.
+- `Element`
+    - `Capabilities`
+        - `Auditable`
+            - New
+                - `Buffered` -- Reads audit responses in chunks.
+                - `LineBuffered` -- Reads audit responses in chunks of lines.
+    - `DOM`
+        - `Capabilities`
+            - `Submittable`, `Auditable` -- Switched from `Proc` to class methods
+                for callbacks, in order to avoid keeping contexts in memory.
+- Session -- Allow for a submit input to be specified when the login needs to be
+    triggered by clicking it, rather than just triggering the submit event on
+    the form.
+- REST API
+    - Added `GET /scans/:id/summary` to return scan progress data without
+        `issues`, `errors` and `sitemap`.
+- Report
+    - Added `#seed` attribute that includes the random scan seed.
+- Plugins
+    - New
+        - `webhook_notify` -- Sends a webhook payload over HTTP at the end of the scan.
+        - `rate_limiter` -- Rate limits HTTP requests.
+        - `page_dump` -- Dumps page data to disk as YAML.
+    - `proxy` -- `bind_address` default switched to `127.0.0.1`, `0.0.0.0` breaks
+        SSL interception on MS Windows.
+    - `metrics`
+        - Fixed division by 0 error when no requests have been performed.
+        - Added:
+            - HTTP
+                - Request time-outs
+                - Responses per second
+            - Browser cluster
+                - Timed-out jobs
+                - Seconds per job
+                - Total job time
+                - Job count
+    - `email_notify`
+        - Retry on error.
+        - Default to `afr` as a report format.
+- Checks
+    - Active
+        - `xss` -- Only check HTML responses to avoid FPs.
+        - `xss_event`
+            - Replaced full parsing of responses with SAX.
+            - Only check HTML responses to avoid FPs.
+        - `xss_script_context`
+            - Replaced full parsing of responses with SAX.
+            - Only check HTML responses to avoid FPs.
+        - `xss_tag`
+            - Replaced full parsing of responses with SAX.
+            - Only check HTML responses to avoid FPs.
+        - `unvalidated_redirect`, `unvalidated_redirect_dom`, `xss`, `xss_dom`,
+            `xss_dom_script_context`, `xss_script_context` -- Replaced `Proc`s
+                with class methods for `BrowserCluster` job callbacks.
+        - `unvalidated_redirect` -- Added prepended payload to the default value.
+        - `sql_injection` -- Added more error signatures for HSQLDB, Java and SQLite.
+        - `csrf` -- Removed heuristics that try to match tokens based on format;
+            now only uses a nonce check.
+        - `path_traversal` -- Increased maximum traversals to 8.
+    - Passive
+        - `backup_files`
+            - Ignore media files to avoid FPs when dealing with galleries and the like.
+            - Added issue remark explaining how the original resource name was manipulated.
+        - `backup_directories` -- Added issue remark explaining how the original
+            resource name was manipulated.
+        - `xst` -- Run once for each protocol, not just for the first page.
+- Path extractors
+    - `data_url` -- Extract from all elements, not just links.
+- Reporters
+    - `xml`
+        - Replaced unsupported null-bytes with a placeholder.
+        - Made `issues/issue/page/dom/data_flow_sinks/data_flow_sink/frame/line` nil-able.
+
+## 1.4 _(February 7, 2016)_
+
+- Native MS Windows compatibility.
+- Options
+    - `--http-proxy-type` -- Added `socks5h`, enabling hostname resolution via the proxy.
+    - Added
+        - Scope
+            - `--scope-exclude-file-extensions` -- CSV of file extensions to exclude.
+        - Audit
+            - `--audit-with-raw-payloads` -- Injects both raw and HTTP encoded payloads.
+- `URI` -- Optimized and re-written to completely bypass Ruby's `URI` lib.
+- `Plugin::Manager`
+    - Run `#prepare` methods of plugins in the Framework thread, ordered by plugin priority.
+- `HTTP`
+    - `ProxyServer` -- Replaced the previous `WEBrick`-based one with a custom
+        written server with support for `keep-alive` and low-overhead SSL interception.
+    - `Client`
+        - Added default value for `Accept-Language` header.
+        - Updated to treat cookie-jar cookies as dumb storage and not encode/decode
+            names and values.
+        - `Dynamic404Handler` -- Check for excessive amounts of noise during
+            custom-404 signature generation and abort if an accurate reading is
+            impossible.
+- `Page`
+    - `DOM`
+        - `#restore` -- Don't preload the stored page to avoid stale nonces,
+            instead rely solely on browser for caching.
+- `Browser`
+    - Replaced internal use of `Watir` with direct access to `Selenium`, resulting
+        in much better performance and lower CPU utilization.
+    - Sped up process spawning,
+    - Switched to `Selenium`'s default HTTP client for `WebDriver` communications
+        in order to resolve JRuby and MS Windows issues.
+    - Added support for tracking event delegation.
+    - `#spawn_phantomjs` -- Use a Ruby lifeline process to kill the browser
+            if the parent dies for whatever reason.
+    - `#fire_event` -- Track changes in timers caused by event triggers to identify
+        and wait for effects and transitions.
+- `Support`
+    - `Signature` -- Optimized signature tokenization, deduplication and compression
+        to be less resource intensive when processing large data sets.
+    - `Cache` -- Minimized calls to `Base#make_key`.
+    - Added
+        - `Glob` -- Glob matcher.
+- `Session`
+    - Added `#check_options`, allowing login scripts to set advanced HTTP request
+        options for login checks.
+- `REST::Server` -- Added REST API.
+- `RPC`
+    - `Server`
+        - `ActiveOptions#set` -- Allow options to be set during runtime and adjust
+            the scan scope accordingly.
+- `Element`
+    - `UIInput::DOM` -- Updated coverage identifier calculation.
+    - `UIForm::DOM` -- Updated coverage identifier calculation.
+    - `Capabilities`
+        - `Analyzable`
+            - `Signature`
+                - Replaced `regexp` and `substring` options with `signature` --
+                    type of matching depends on `signature` type.
+                - Allow `signature` to be generated dynamically based on the
+                    `HTTP::Response` about to be checked, from a `#call`able object.
+            - `Differential`
+                - Abort on partial responses to avoid FPs caused by server stress
+                    or Firewall/IDS/IPS.
+            - `Timeout`
+                - Added one more verification phase to further reduce the possibility
+                    of random FPs.
+- Checks
+    - Active -- Updated all checks that make use of `Element::Capabilities::Analyzable::Signature`
+        to provide simple substring signatures whenever possible.
+        Alternatively, when a `Regexp` is necessary, they take advantage of dynamic
+        signature generation based on the current response and perform a lightweight
+        preliminary check for hints of vulnerability, only then is the more
+        resource intensive `Regexp` matched.
+        - `xss`, `xss_dom`, `xss_tag`, `xss_event`, `xss_script_context` --
+            Optimized identification of tainted responses to avoid parsing as
+                much as possible.
+        - `xss_dom` -- Updated payloads to improve coverage.
+        - `sql_injection_differential`
+            - Replaced `-1` control `false` value with `-1839`
+            - When using quotes, quote all parts of the conditional in the SQL query.
+        - `no_sql_injection_differential`
+            - Replaced `-1` control `false` value with `-1839`
+    - Passive
+        - `directory_listing` - Bail out on failed requests to avoid FPs.
+        - `backdoors`, `backup_directories`, `backup_files`, `common_admin_interfaces`,
+            `common_directories`, `common_files` -- Bail out if the seed resource
+            is already a 404.
+        - Grep
+            - `emails` -- Verify e-mail addresses by resolving the identified domains.
+            - `credit_card`, `ssn` -- Mark issues as untrusted by default since
+                there's no way to verify SSNs.
+            - `http_only_cookies`, `insecure_cookies` -- Only check current page
+                cookies, don't let the CookieJar ones sneak in.
+            - `insecure_cookies` -- Check JS cookies too.
+- Plugins
+    - `proxy`
+        - Removed injection of control toolbar to each response.
+        - Cleaned up control panel design.
+        - Updated description to list management URLs and SSL interception info.
+    - `email_notify` -- Made username and password optional.
+    - `defaults/meta/remedy/`
+        - `discovery` -- Updated similarity check to prevent analysis of singular issues.
+- Reporters
+    - `xml` -- Updated validation messages to point to relevant markup.
+- Path extractors
+    - `meta_refresh` -- Strip whitespaces from URLs when not in quotes.
+
+## 1.3.2 _(October 19, 2015)_
+
+- `UI`
+    - `CLI`
+        - Help output
+            - Simplified `PATTERN` examples.
+            - Replaced `test.com` with `example.com`.
+- Browser
+    - Configure PhantomJS to accept any SSL version to allow for easier interception.
+- `HTTP`
+    - `Request`
+        - `#body_parameters` -- Added support for `multipart/form-data`.
+- `Element`
+    - `Form`
+        - `.parse_data` -- Parse `multipart/form-data`.
+    - `UIForm`
+        - `.from_browser` -- Include `<input type="submit">` buttons.
+
+
+## 1.3.1 _(October 13, 2015)_
+
+- `UI`
+    - `CLI`
+        - Options
+            - `--http-ssl-key` -- Fixed typo causing option to raise error.
+
+## 1.3 _(October 01, 2015)_
+
+- `UI`
+    - `CLI`
+        - Options
+            - `--browser-cluster-local-storage` -- Sets `localStorage` data from JSON file.
+- `Issue`
+    - `#variations` -- Removed, all issues now include full data.
+    - `#unique_id`, `#digest` -- In cases of passive issues, the associated
+        `#proof` is now taken into consideration.
+- `Data`
+    - `Framework`
+        - `#update_sitemap` -- Don't push URLs that include the
+            `Utilities.random_seed` to the sitemap to keep noise down.
+- `Element`
+    - `Cookie`
+        - `.encode` -- Updated list of reversed characters.
+        - `.decode` -- Handle broken encodings.
+    - `Form`
+        - `.decode` -- Handle broken encodings.
+    - `UIForm` -- Audits `<input>` and `<button>` groups which don't belong to
+        a `<form>` parent. Also covers cases of `<form>` submissions that occur
+        via elements other than a submit button.
+    - `UIInput` -- Audits individual `<input>` elements which have associated DOM events.
+    - `Capabilities` -- Refactored to allow for easier expansion of DOM capabilities.
+        - `Analyzable`
+            - `Differential` -- Updated to remove the injected seed from the response
+                bodies, echoed payloads can compromise the analysis.
+            - `Taint` => `Signature` -- Signature analysis better describes that
+                process and the "taint" terminology was overloaded by the browser's
+                taint tracing subsystems.
+- `Browser`
+    - Use the faster, native `#click` event on `Watir` elements, instead of `fire_event`.
+    - Sets `localStorage` data from `Arachni::OptionGroups::BrowserCluster#local_storage`.
+    - `Javascript`
+        - `TaintTracer`
+            - Updated sanitization of traced `Event` arguments to extract only
+                certain properties instead of iterating through the whole object.
+            - Limited the depth of the recursive taint search in argument objects.
+- `Components`
+    - Path extractors
+        - `comments`
+            - Small cleanup in acceptable paths.
+        - `script`
+            - Updated to not get fooled by comment strings (`/*Comment`, `//Comment`).
+            - Updated to require absolute paths to avoid processing junk.
+    - Reporters -- All reporters have been updated to remove `Issue#variations`.
+        - `xml` -- Updated schema to include the new `Element::UIForm::DOM` and
+            `Element::Input::DOM` elements.
+    - Plugins
+        - `proxy` -- Fixed bug causing the plugin to hang after proxy server shutdown.
+        - `login_script`
+            - Wait for the page to settle when using a JS login script.
+            - Catch script syntax errors.
+    - Checks
+        - Active
+            - Removed
+                `xss_dom_inputs` -- No longer necessary, covered by new DOM
+                    element abstractions and `xss_dom`.
+            - `unvalidated_redirect` -- Updated to use `Utilities.random_seed`
+                in the injected URL.
+            - `unvalidated_redirect_dom` -- Updated to use `Utilities.random_seed`
+                in the injected URL.
+        - Passive -- Reworked proofs to remove dynamic content which can interfere
+            with issue uniqueness or removed proofs altogether when not necessary.
+
 ## 1.2.1 _(July 25, 2015)_
 
 - HTTP

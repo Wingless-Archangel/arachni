@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -60,32 +60,28 @@ class Manager < Arachni::Component::Manager
     # @raise [Error::UnsatisfiedDependency]
     #   If the environment is {#sane_env? not sane}.
     def run
-        prepared_signals = Queue.new
+        print_status 'Preparing plugins...'
 
         schedule.each do |name, options|
+            instance = create( name, options )
+
+            exception_jail do
+                instance.prepare
+            end rescue next
+
             @jobs[name] = Thread.new do
                 exception_jail( false ) do
-                    begin
-                        Thread.current[:instance] = create( name, options )
-                        Thread.current[:instance].prepare
-                    ensure
-                        prepared_signals << nil
-                    end
-
+                    Thread.current[:instance] = instance
                     Thread.current[:instance].run
                     Thread.current[:instance].clean_up
+                end
 
-                    synchronize do
-                        @jobs.delete name
-                    end
+                synchronize do
+                    @jobs.delete name
                 end
             end
         end
 
-        return if @jobs.empty?
-
-        print_status 'Preparing plugins...'
-        self.size.times { prepared_signals.pop }
         print_status '... done.'
     end
 
@@ -111,6 +107,7 @@ class Manager < Arachni::Component::Manager
 
         ordered << unordered
         ordered.flatten!
+        ordered.compact!
 
         ordered.inject({}) do |h, ph|
             name   = ph.keys.first

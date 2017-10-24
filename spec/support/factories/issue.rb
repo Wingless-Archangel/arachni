@@ -27,8 +27,7 @@ Factory.define :issue_data do
                 'Generic' => 'all'
             },
             elements:    [
-                Arachni::Element::Link,
-                Arachni::Element::Form::DOM
+                Arachni::Element::Link
             ],
             shortname:   'test'
         }
@@ -51,17 +50,4 @@ end
 
 Factory.define :issue_empty do
     Arachni::Issue.new( vector: Factory[:vector] )
-end
-
-Factory.define :issue_with_variations do
-    root = Factory[:active_issue].with_variations
-
-    10.times do |i|
-        root.variations << Factory[:active_issue].as_variation.tap do |issue|
-            issue.vector.affected_input_value = i.to_s
-            issue.vector.seed                 = i.to_s
-        end
-    end
-
-    root
 end

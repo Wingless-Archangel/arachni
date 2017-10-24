@@ -23,7 +23,7 @@ get '/static/*' do
     'This is a custom 404, try to catch it. ;)'
 end
 
-get '/dynamic/erratic/*' do
+get '/dynamic/erratic/code/*' do
     if @@erratic > 3
         return 500
     end
@@ -32,6 +32,12 @@ get '/dynamic/erratic/*' do
 
     'This is a custom 404 which includes the requested resource, try to catch it. ;)' +
         '<br/>You asked for "' + params[:splat].first.to_s + '", which could not be found.'
+end
+
+get '/dynamic/erratic/body/*' do
+    @@erratic += 1
+
+    "#{'cra' * rand( 99 )} aa#{rand( @@erratic )}azy! #{rand(@@erratic)} " * rand( @@erratic )
 end
 
 get '/dynamic/*' do
@@ -47,6 +53,26 @@ get '/combo/*' do
     handler_response_1
 end
 
+get '/ignore-after-filename/*' do
+    entry, other = params[:splat].first.split( '/', 2 )
+
+    if entry.start_with?( '123' ) && other.empty?
+        'Found!'
+    else
+        'Not found'
+    end
+end
+
+get '/ignore-before-filename/*' do
+    entry, other = params[:splat].first.split( '/', 2 )
+
+    if entry.end_with?( '123' ) && other.empty?
+        'Found!'
+    else
+        'Not found'
+    end
+end
+
 get '/advanced/sensitive-ext/:filename' do |filename|
     name, ext = filename.split( '.', 2 )
 
@@ -56,5 +82,21 @@ get '/advanced/sensitive-ext/:filename' do |filename|
         handler_response_1
     else
         handler_response_2
+    end
+end
+
+get '/advanced/sensitive-dash/pre/*-*' do |d1, _|
+    if d1 == 'blah'
+        'Found, all good!'
+    else
+        handler_response_1
+    end
+end
+
+get '/advanced/sensitive-dash/post/*-*' do |_, d2|
+    if d2 == 'html'
+        'Found, all good!'
+    else
+        handler_response_1
     end
 end

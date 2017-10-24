@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -23,11 +23,11 @@ module WithSource
 
     def initialize( options )
         super
-        self.source = options[:source].freeze
+        self.source = options[:source]
     end
 
     def source=( s )
-        @source = (s ? s.recode.freeze : s)
+        @source = (s ? s.strip : s.freeze )
     end
 
     def to_h
@@ -45,7 +45,7 @@ module WithSource
     private
 
     def copy_with_source( other )
-        other.source = source
+        other.source = @source
         other
     end
 

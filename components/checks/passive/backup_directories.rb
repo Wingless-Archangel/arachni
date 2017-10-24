@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -14,6 +14,8 @@ class Arachni::Checks::BackupDirectories < Arachni::Check::Base
     end
 
     def run
+        return if page.code != 200
+
         if page.parsed_url.path.to_s.empty? || page.parsed_url.path == '/'
             print_info "Backing out, couldn't extract directory name from: #{page.url}"
             return
@@ -26,7 +28,19 @@ class Arachni::Checks::BackupDirectories < Arachni::Check::Base
         name = File.basename( page.parsed_url.path )
 
         self.class.formats.each do |format|
-            log_remote_file_if_exists( path + format.gsub( '[name]', name ) )
+            backup_name = format.gsub( '[name]', name )
+            url = path + backup_name
+
+            remark = 'Identified by converting the original directory name of ' <<
+                "'#{name}' to '#{backup_name}' using format '#{format}'."
+
+            log_remote_file_if_exists(
+                url,
+                false,
+                remarks: {
+                    check: [ remark ]
+                }
+            )
         end
 
         audited( resource )
@@ -38,7 +52,7 @@ class Arachni::Checks::BackupDirectories < Arachni::Check::Base
             description:      %q{Tries to find backed-up directories.},
             elements:         [ Element::Server ],
             author:           'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com> ',
-            version:          '0.1.1',
+            version:          '0.1.3',
             exempt_platforms: Arachni::Platform::Manager::FRAMEWORKS,
 
             issue:       {

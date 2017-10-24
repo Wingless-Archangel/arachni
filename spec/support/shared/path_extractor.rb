@@ -19,13 +19,21 @@ shared_examples_for "path_extractor" do
         it "extracts the expected paths" do
             raise 'No paths provided via #results, use \':nil\' for \'nil\' results.' if !results
 
-            actual_results.sort.should == results.sort
+            expect(actual_results.sort).to eq results.sort
             instance_eval &block if block_given?
         end
     end
 
-    def doc
-        Nokogiri::HTML( text )
+    def parser
+        Arachni::Parser.new(
+            Arachni::HTTP::Response.new(
+                url:     'http://localhost',
+                body:    text,
+                headers: {
+                    'Content-Type' => 'text/html'
+                }
+            )
+        )
     end
 
     def actual_results
@@ -33,15 +41,19 @@ shared_examples_for "path_extractor" do
     end
 
     def results_for( name )
-        paths = extractors[name].new( document: doc, html: text ).run || []
+        paths = extractors[name].new( parser: parser, html: text ).run || []
         paths.delete( 'http://www.w3.org/TR/REC-html40/loose.dtd' )
         paths.compact.flatten
     end
 
-    module Arachni::Parser::Extractors;end
+    module Arachni::Parser::Extractors
+    end
     def extractors
         @path_extractors ||=
-            ::Arachni::Component::Manager.new( options.paths.path_extractors, Arachni::Parser::Extractors )
+            ::Arachni::Component::Manager.new(
+                options.paths.path_extractors,
+                Arachni::Parser::Extractors
+            )
     end
 
 end

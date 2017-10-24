@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -39,7 +39,7 @@ class CookieJar
     # @param    [String]    cookie_jar_file
     #   Path to a Netscape cookie-jar.
     def initialize( cookie_jar_file = nil )
-        @domains = {}
+        @cookies = {}
         load( cookie_jar_file ) if cookie_jar_file
     end
 
@@ -52,10 +52,11 @@ class CookieJar
     #
     # @return   [CookieJar]  self
     def load( cookie_jar_file, url = '' )
-        # make sure that the provided cookie-jar file exists
         if !File.exist?( cookie_jar_file )
-            fail Error::CookieJarFileNotFound, "Cookie-jar '#{cookie_jar_file}' doesn't exist."
+            fail Error::CookieJarFileNotFound,
+                 "Cookie-jar '#{cookie_jar_file}' doesn't exist."
         end
+
         update( cookies_from_file( url, cookie_jar_file ) )
         self
     end
@@ -66,8 +67,9 @@ class CookieJar
     # @return   [CookieJar]
     #   `self`
     def <<( cookies )
-        [cookies].flatten.compact.each do |cookie|
-            ((@domains[cookie.domain] ||= {})[cookie.path] ||= {})[cookie.name] = cookie.dup
+        [cookies].flatten.each do |cookie|
+            next if !cookie
+            set_cookie( cookie )
         end
         self
     end
@@ -79,14 +81,12 @@ class CookieJar
     #
     # @return   [CookieJar]  self
     def update( cookies )
-        [cookies].flatten.compact.each do |c|
+        [cookies].flatten.each do |c|
+            next if !c
+
             self << case c
                         when String
-                            begin
-                                Cookie.from_string( ::Arachni::Options.url.to_s, c )
-                            rescue
-                                Cookie.from_set_cookie( ::Arachni::Options.url.to_s, c )
-                            end
+                            Cookie.from_set_cookie( ::Arachni::Options.url.to_s, c )
 
                         when Hash
                             next if c.empty?
@@ -115,15 +115,17 @@ class CookieJar
 
         return [] if !request_domain || !request_path
 
-        @domains.map do |domain, paths|
-            next if !in_domain?( domain, request_domain )
-
-            paths.map do |path, cookies|
-                next if !request_path.start_with?( path )
-
-                cookies.values.reject{ |c| c.expired? }
+        unique_cookies = {}
+        @cookies.values.map do |cookie|
+            if cookie.expired? || !request_path.start_with?( cookie.path ) ||
+                !in_domain?( cookie.domain, request_domain )
+                next
             end
-        end.flatten.compact.sort do |lhs, rhs|
+
+            unique_cookies[cookie.name] = cookie
+        end
+
+        unique_cookies.values.sort do |lhs, rhs|
             rhs.path.length <=> lhs.path.length
         end
     end
@@ -134,15 +136,10 @@ class CookieJar
     # @return   [Array<Cookie>]
     #   All cookies.
     def cookies( include_expired = false )
-        @domains.values.map do |paths|
-            paths.values.map do |cookies|
-                if !include_expired
-                    cookies.values.reject{ |c| c.expired? }
-                else
-                    cookies.values
-                end
-            end
-        end.flatten.compact
+        @cookies.values.map do |cookie|
+            next if !include_expired && cookie.expired?
+            cookie
+        end.compact
     end
 
     # @param    [CookieJar] other
@@ -152,13 +149,13 @@ class CookieJar
 
     # Empties the cookiejar.
     def clear
-        @domains.clear
+        @cookies.clear
     end
 
     # @return   [Bool]
     #   `true` if cookiejar is empty, `false` otherwise.
     def empty?
-        @domains.empty?
+        @cookies.empty?
     end
 
     # @return   [Bool]
@@ -178,16 +175,45 @@ class CookieJar
 
     private
 
+    def get_cookie( cookie )
+        @cookies[make_key( cookie )]
+    end
+
+    def set_cookie( cookie )
+        key = make_key( cookie )
+
+        if (existing = @cookies[key]) &&
+            cookie.to_set_cookie == existing.to_set_cookie
+            return
+        end
+
+        @cookies[key] = cookie.dup.tap { |c| c.page = nil }
+    end
+
+    def make_key( cookie )
+        "#{cookie.domain}:#{cookie.path}:#{cookie.name}".hash
+    end
+
     def in_domain?( cookie_domain, request_domain )
         request_domain == cookie_domain ||
-            ( cookie_domain.start_with?( '.' ) &&
-              request_domain.end_with?( cookie_domain[1...cookie_domain.size] )
+            (
+                cookie_domain.start_with?( '.' ) &&
+                    request_domain.end_with?( cookie_domain[1...cookie_domain.size] )
             )
     end
 
     def to_uri( url )
-        u = url.is_a?( ::URI ) || url.is_a?( ::Arachni::URI ) ? url : uri_parse( url.to_s )
-        fail ArgumentError, 'Complete absolute URL required.' if u.relative?
+        u = url.is_a?( Arachni::URI ) ? url : Arachni::URI( url.to_s )
+
+        if !u
+            fail "Failed to parse: #{url}"
+        end
+
+        if !u.absolute?
+            fail ArgumentError,
+                 "Complete absolute URL required, got: #{url} (#{u})"
+        end
+
         u
     end
 

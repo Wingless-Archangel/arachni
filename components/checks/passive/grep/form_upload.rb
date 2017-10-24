@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -9,15 +9,17 @@
 # Looks for and logs forms with file inputs.
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
-#
-# @version 0.2.1
 class Arachni::Checks::FormUpload < Arachni::Check::Base
 
     def run
         page.forms.each do |form|
             form.inputs.keys.each do |name|
                 next if form.details_for( name )[:type] != :file
-                log( proof: form.source, vector: form )
+
+                log(
+                    proof: form.node.nodes_by_attribute_name_and_value( 'type','file' ).first.to_html,
+                    vector: form
+                )
             end
         end
     end
@@ -28,7 +30,7 @@ class Arachni::Checks::FormUpload < Arachni::Check::Base
             description: 'Logs upload forms which require manual testing.',
             elements:    [ Element::Form ],
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.2.1',
+            version:     '0.2.3',
 
             issue:       {
                 name:        %q{Form-based File Upload},

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -57,6 +57,14 @@ class Session
 
     # @return   [Block]
     attr_reader :login_sequence
+
+    # @return   [Hash]
+    #   {HTTP::Client#request} options for {#logged_in?}.
+    attr_accessor :check_options
+
+    def initialize
+        @check_options = {}
+    end
 
     def clean_up
         configuration.clear
@@ -193,20 +201,20 @@ class Session
         print_info 'Trying to re-login...'
 
         LOGIN_TRIES.times do |i|
-            break if !login.response.timed_out? rescue Error
+            self.login
+
+            if self.logged_in?
+                print_ok 'Logged-in successfully.'
+                return true
+            end
 
             print_bad "Login attempt #{i+1} failed, retrying after " <<
                           "#{LOGIN_RETRY_WAIT} seconds..."
             sleep LOGIN_RETRY_WAIT
         end
 
-        if logged_in?
-            print_ok 'Logged-in successfully.'
-            true
-        else
-            print_bad 'Could not re-login.'
-            false
-        end
+        print_bad 'Could not re-login.'
+        false
     end
 
     # @param    [Block] block
@@ -248,8 +256,8 @@ class Session
 
     # @param    [Block] block
     #   Block to be passed the {#browser}.
-    def with_browser( &block )
-        block.call browser
+    def with_browser( *args, &block )
+        block.call browser, *args
     end
 
     # @param    [Hash]   http_options
@@ -267,18 +275,25 @@ class Session
         fail Error::NoLoginCheck if !has_login_check?
 
         http_options = http_options.merge(
+            method:          :get,
             mode:            block_given? ? :async : :sync,
             follow_location: true,
             performer:       self
         )
+        http_options.merge!( @check_options )
 
         print_debug 'Performing login check.'
 
         bool = nil
-        http.get( Options.session.check_url, http_options ) do |response|
+        http.request( Options.session.check_url, http_options ) do |response|
             bool = !!response.body.match( Options.session.check_pattern )
 
             print_debug "Login check done: #{bool}"
+
+            if !bool
+                print_debug "\n#{response.request}#{response}"
+            end
+
             block.call( bool ) if block
         end
 
@@ -332,7 +347,7 @@ class Session
             # We need to reparse the body in order to override the scope
             # and thus extract even out-of-scope forms in case we're dealing
             # with a Single-Sign-On situation.
-            forms:  forms_from_document( page.url, page.body, true ),
+            forms:  forms_from_parser( page.parser, true ),
             inputs: configuration[:inputs].keys
         )
 
@@ -351,7 +366,7 @@ class Session
             form = form.dom
             form.browser = browser
 
-            if !form.element.visible?
+            if !form.locate.displayed?
                 fail Error::FormNotVisible, 'Login form is not visible in the DOM.'
             end
         end
@@ -364,7 +379,26 @@ class Session
         page = nil
         if has_browser?
             print_debug 'Submitting form.'
-            form.submit { |p| page = p }
+
+            click_button = configuration[:inputs].
+                find { |k, _| form.parent.details_for( k )[:type] == :submit }
+
+            if click_button
+                click_button = click_button.first
+
+                transitions = []
+                transitions << browser.fire_event( form.locate, :fill, inputs: form.inputs )
+                transitions << browser.fire_event( Browser::ElementLocator.new(
+                    tag_name:   :input,
+                    attributes: form.parent.details_for( click_button )
+                ), :click )
+
+                page = browser.to_page
+                page.dom.transitions += transitions
+            else
+                form.submit { |p| page = p }
+            end
+
             print_debug 'Form submitted.'
         else
             page = form.submit(

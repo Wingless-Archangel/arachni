@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -12,7 +12,7 @@ module Jobs
 class TaintTrace
 
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
-class EventTrigger < ResourceExploration::EventTrigger
+class EventTrigger < DOMExploration::EventTrigger
 
     require_relative 'event_trigger/result'
 
@@ -28,7 +28,7 @@ class EventTrigger < ResourceExploration::EventTrigger
     def to_s
         "#<#{self.class}:#{object_id} @resource=#{@resource} " +
             "@event=#{@event.inspect} @element=#{@element.inspect} " +
-            "@forwarder=#{@forwarder}>"
+            "@forwarder=#{@forwarder} time=#{@time} timed_out=#{timed_out?}>"
     end
 
 end

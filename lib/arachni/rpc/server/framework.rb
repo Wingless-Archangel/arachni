@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -129,6 +129,8 @@ class Framework < ::Arachni::Framework
     #
     # @return   [Hash<String=>Integer>]
     def sitemap_entries( from_index = 0 )
+        return {} if sitemap.size <= from_index + 1
+
         Hash[sitemap.to_a[from_index..-1] || {}]
     end
 
@@ -206,12 +208,11 @@ class Framework < ::Arachni::Framework
     end
 
     # @return  [Array<Hash>]
-    #   First variations of all discovered issues with generic info filled in
-    #   from the parent as {Arachni::Issue#to_rpc_data RPC data}.
+    #   Issues as {Arachni::Issue#to_rpc_data RPC data}.
     #
     # @private
     def issues
-        Data.issues.map { |issue| issue.variations.first.to_solo( issue ).to_rpc_data }
+        Data.issues.sort.map(&:to_rpc_data)
     end
 
     # @return   [Array<Hash>]
@@ -219,7 +220,7 @@ class Framework < ::Arachni::Framework
     #
     # @see #issues
     def issues_as_hash
-        Data.issues.map { |issue| issue.variations.first.to_solo( issue ).to_h }
+        Data.issues.sort.map(&:to_h)
     end
 
     # @return   [String]

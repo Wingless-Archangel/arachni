@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -18,7 +18,7 @@ class Arachni::Checks::PasswordAutocomplete < Arachni::Check::Base
             next if form.simple[:autocomplete] == 'off'
             next if has_input_with_autocomplete_off? form
 
-            log( proof: form.source, vector: form )
+            log( vector: form )
         end
     end
 
@@ -36,7 +36,7 @@ class Arachni::Checks::PasswordAutocomplete < Arachni::Check::Base
                 without explicitly disabling auto-complete.},
             elements:    [ Element::Form ],
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.3',
+            version:     '0.3.1',
 
             issue:       {
                 name:        %q{Password field with auto-complete},

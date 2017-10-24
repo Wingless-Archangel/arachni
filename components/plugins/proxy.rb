@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -45,15 +45,15 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
              timeout:          options[:timeout]
         )
 
-        @pages = Set.new
+        @pages       = Set.new
+        @pages_mutex = Mutex.new
         @login_sequence = []
+
+        framework_pause
     end
 
     def run
-        framework_pause
-        print_info 'System paused.'
-
-        print_status "Listening on: http://#{@server[:BindAddress]}:#{@server[:Port]}"
+        print_status "Listening on: #{@server.url}"
 
         print_info "Control panel URL: #{url_for( :panel )}"
         print_info "Shutdown URL:      #{url_for( :shutdown )}"
@@ -61,7 +61,7 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
         print_info
         print_info 'When browsing HTTPS sites, please accept the Arachni SSL certificate' +
             ' or install the CA certificate manually from:'
-        print_info "    #{Arachni::HTTP::ProxyServer::INTERCEPTOR_CA_CERTIFICATE}"
+        print_info "    #{Arachni::HTTP::ProxyServer::SSLInterceptor::CA_CERTIFICATE}"
         print_info
         print_bad '**DO NOT** forget to revoke it after using the proxy, as it' +
             ' can be used by anyone to impersonate 3rd party servers.'
@@ -73,26 +73,22 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
 
         TemplateScope.get.set :params, {}
 
-        Thread.new do
-            @server.start
-        end
+        @server.start_async
 
         wait_while_framework_running
-        @server.shutdown
     end
 
     def clean_up
-        @pages.each { |p| framework.push_to_page_queue( p, true ) }
+        return if @cleaned_up
+        @cleaned_up = true
+
+        @server.shutdown
+
+        @pages_mutex.synchronize do
+            @pages.each { |p| framework.push_to_page_queue( p, true ) }
+        end
+
         framework_resume
-    end
-
-    def prepare_pages_for_inspection
-        (@pages.select do |p|
-            next if !p.text?
-
-            p.forms.any? || p.links.any? || p.cookies.any? || p.jsons.any? ||
-                p.xmls.any?
-        end).to_a
     end
 
     def vectors_yaml
@@ -191,7 +187,7 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
         if shutdown?( url )
             print_status 'Shutting down...'
             set_response_body( res, erb( :shutdown_message ) )
-            @server.shutdown
+            clean_up
             return
         end
 
@@ -200,9 +196,12 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
         # Avoid propagating the proxy's session cookie to the webapp.
         req.cookies.delete SESSION_TOKEN_COOKIE
 
+        res.code = 200
+
         if url.start_with? url_for( :panel )
             body =  case '/' + res.parsed_url.path.split( '/' )[2..-1].join( '/' )
                         when '/'
+                            TemplateScope.get.set :pages, prepare_pages_for_inspection
                             erb :panel
 
                         when '/vectors.yml'
@@ -212,10 +211,6 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
                                 layout:  false,
                                 format:  :yml,
                                 vectors: vectors_yaml
-
-                        when '/inspect'
-                            erb :inspect,
-                                pages: prepare_pages_for_inspection
 
                         when '/help'
                             erb :help
@@ -227,8 +222,8 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
                         when '/record/stop'
                             record_stop
                             erb :verify_login_check, verify_fail: false, params: {
-                                'url'     => framework.options.login.check_url,
-                                'pattern' => framework.options.login.check_pattern
+                                'url'     => framework.options.session.check_url,
+                                'pattern' => framework.options.session.check_pattern
                             }
 
                         when '/verify/login_check'
@@ -236,8 +231,8 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
                             if req.method != :post
                                 erb :verify_login_check, verify_fail: false
                             else
-                                framework.options.login.check_url     = params['url']
-                                framework.options.login.check_pattern = params['pattern']
+                                framework.options.session.check_url     = params['url']
+                                framework.options.session.check_pattern = params['pattern']
 
                                 if !session.logged_in?
                                     erb :verify_login_check,
@@ -282,6 +277,10 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
         end
 
         true
+
+    rescue => e
+        ap e
+        ap e.backtrace
     end
 
     def requires_token?( url )
@@ -330,11 +329,13 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
     def find_login_form_from_request( request )
         return if (params = request_parse_body( request.body )).empty?
 
-        f = session.find_login_form(
-            pages:  @pages.to_a,
-            action: normalize_url( request.url ),
-            inputs: params.keys
-        )
+        f = @pages_mutex.synchronize do
+            session.find_login_form(
+                pages:  @pages.to_a,
+                action: normalize_url( request.url ),
+                inputs: params.keys
+            )
+        end
 
         return if !f
         f.update( params )
@@ -345,12 +346,38 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
     #
     # @return   [Array<Arachni::Element::Form>]
     def forms_with_password
-        @pages.map { |p| p.forms.select { |f| f.requires_password? } }.flatten
+        @pages_mutex.synchronize do
+            @pages.map { |p| p.forms.select { |f| f.requires_password? } }.flatten
+        end
+    end
+
+    def prepare_pages_for_inspection
+        @pages_mutex.synchronize do
+            (@pages.map do |p|
+                next if !p.text?
+                p = p.dup
+
+                %w(links forms cookies jsons xmls).each do |type|
+                    p.send(
+                        "#{type}=",
+                        p.send(type).reject { |e| e.inputs.empty? }
+                    )
+                end
+
+                if !(p.forms.any? || p.links.any? || p.cookies.any? || p.jsons.any? ||
+                    p.xmls.any?)
+                    next
+                end
+
+                p
+            end).compact
+        end
     end
 
     # Called by the proxy for each response.
     def response_handler( request, response )
-        return response if response.scope.out?
+        return response if response.scope.out? || !response.text? ||
+            response.code == 304
 
         if ignore_responses?
             page = Page.from_data(
@@ -369,16 +396,12 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
         print_info " *  #{page.jsons.size} JSON"
         print_info " *  #{page.xmls.size} XML"
 
-        @pages << page.dup
-
-        inject_panel response
-    rescue => e
-        ap e
-        ap e.backtrace
+        @pages_mutex.synchronize do
+            @pages << page.dup
+        end
     end
 
     def update_forms( page, request, response )
-
         if (json = Arachni::Element::JSON.from_request( response.url, request ))
             page.jsons |= [json]
             return page
@@ -396,17 +419,10 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
             inputs: request_parse_body( request.body.to_s )
         )]
         page
-    end
 
-    def inject_panel( response )
-        if !response.headers.content_type.to_s.start_with?( 'text/html' ) ||
-            !(body_tag = response.body.match( /<(\s*)body(.*)>/i ))
-            return response
-        end
-
-        response.body.gsub!( body_tag.to_s, "#{body_tag}#{panel_iframe}" )
-        response.headers['content-length'] = response.body.size.to_s
-        response
+    rescue => e
+        ap e
+        ap e.backtrace
     end
 
     def panel_iframe
@@ -431,6 +447,9 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
 
     def erb( *args )
         TemplateScope.get.erb( *args )
+    rescue => e
+        ap e
+        ap e.backtrace
     end
 
     def ignore_responses?
@@ -481,23 +500,41 @@ class Arachni::Plugins::Proxy < Arachni::Plugin::Base
 * Supports SSL interception.
 * Authorization via a configurable session token.
 
+**MANAGEMENT**
+
+* [Control panel](http://arachni.proxy/panel)
+* [Shutdown URL](http://arachni.proxy/shutdown)
+
+_The above URLs will only work from a browser configured to use the proxy._
+
+**SSL**
+
+When browsing HTTPS sites, please accept the Arachni SSL certificate or install
+the CA certificate manually from:
+
+    %s
+
+**INFO**
+
 To skip crawling and only audit elements discovered by using the proxy
 set the scope page-limit option to '0'.
 
-**NOTICE**:
+**NOTICE**
+
 The `session_token` will be looked for in a cookie named
 `arachni.proxy.session_token`, so if you choose to use a token to restrict
 access to the proxy and need to pass traffic through the proxy programmatically
 please configure your HTTP client with a cookie named `arachni.proxy.session_token`
 with the value of the 'session_token' option.
 
-**WARNING**:
+**WARNING**
+
 The `session_token` option is not a way to secure usage of this proxy but rather
 a way to restrict usage enough to avoid users unwittingly interfering with each
 others' sessions.
-},
+} % Arachni::HTTP::ProxyServer::SSLInterceptor::CA_CERTIFICATE,
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>',
-            version:     '0.3.4',
+            version:     '0.4',
             options:     [
                 Options::Port.new( :port,
                     description: 'Port to bind to.',
@@ -505,7 +542,8 @@ others' sessions.
                 ),
                 Options::Address.new( :bind_address,
                     description: 'IP address to bind to.',
-                    default:     '0.0.0.0'
+                    # Don't use 0.0.0.0, it breaks SSL interception on MS Windows.
+                    default:     '127.0.0.1'
                 ),
                 Options::Bool.new( :ignore_responses,
                     description: 'Forces the proxy to only extract vector '+

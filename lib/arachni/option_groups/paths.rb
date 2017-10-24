@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -7,6 +7,7 @@
 =end
 
 require 'fileutils'
+require 'tmpdir'
 
 module Arachni::OptionGroups
 
@@ -75,12 +76,22 @@ class Paths < Arachni::OptionGroup
         File.expand_path( File.dirname( __FILE__ ) + '/../../..' ) + '/'
     end
 
+    def tmpdir
+        if config['framework']['tmpdir'].to_s.empty?
+            # On MS Windows Dir.tmpdir can return the path with a shortname,
+            # better avoid that as it can be insonsistent with other paths.
+            Arachni.get_long_win32_filename( Dir.tmpdir )
+        else
+            Arachni.get_long_win32_filename( config['framework']['tmpdir'] )
+        end
+    end
+
     def config
         self.class.config
     end
 
     def self.paths_config_file
-        "#{root_path}config/write_paths.yml"
+        Arachni.get_long_win32_filename "#{root_path}config/write_paths.yml"
     end
 
     def self.clear_config_cache
@@ -106,8 +117,15 @@ class Paths < Arachni::OptionGroup
                     next
                 end
 
-                dir.gsub!( '~', ENV['HOME'] )
+                dir = Arachni.get_long_win32_filename( dir )
+
+                if !Arachni.windows?
+                    dir.gsub!( '~', ENV['HOME'] )
+                end
+
                 dir << '/' if !dir.end_with?( '/' )
+
+                @config[category][subcat] = dir
 
                 FileUtils.mkdir_p dir
             end

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -39,8 +39,11 @@ class DOM
     #   {Browser::Javascript::TaintTracer#execution_flow_sinks} data.
     attr_accessor :execution_flow_sinks
 
-    # @return   [String]
-    #   String digest of the DOM tree.
+    # @return   [Array<Arachni::Element::Cookie>]
+    attr_accessor :cookies
+
+    # @return   [Integer]
+    #   Digest of the DOM tree.
     attr_accessor :digest
 
     # @return   [String]
@@ -49,7 +52,7 @@ class DOM
 
     # @return   [Page]
     #   Page to which this DOM state is attached.
-    attr_reader   :page
+    attr_accessor :page
 
     # @param    [Hash]  options
     # @option   options [Page]  :page
@@ -58,6 +61,7 @@ class DOM
         @page                 = options[:page]
         self.url              = options[:url]                   || @page.url
         self.digest           = options[:digest]
+        @cookies              = options[:cookies]               || []
         @transitions          = options[:transitions]           || []
         @data_flow_sinks      = options[:data_flow_sinks]       || []
         @execution_flow_sinks = options[:execution_flow_sinks]  || []
@@ -67,18 +71,6 @@ class DOM
 
     def url=( url )
         @url = url.freeze
-    end
-
-    def digest=( d )
-        return @digest = nil if !d
-
-        if d.include?( url ) || d.include?( page.url )
-            d = d.dup
-            d.gsub!( url, '' )
-            d.gsub!( page.url, '' )
-        end
-
-        @digest = d.freeze
     end
 
     # @param    [Transition]    transition
@@ -100,11 +92,11 @@ class DOM
 
     def print_transitions( printer, indent = '' )
         longest_event_size = 0
-        page.dom.transitions.each do |t|
+        @transitions.each do |t|
             longest_event_size = [t.event.to_s.size, longest_event_size].max
         end
 
-        page.dom.transitions.map do |t|
+        @transitions.map do |t|
             padding = longest_event_size - t.event.to_s.size + 1
             time    = sprintf( '%.4f', t.time.to_f )
 
@@ -142,24 +134,32 @@ class DOM
     #
     # @return   [Browser, nil]
     #   Live page in the `browser` if successful, `nil` otherwise.
-    def restore( browser, take_snapshot = true )
-        # Preload the associated HTTP response since we've already got it.
-        browser.preload( page )
+    def restore( browser )
+        playables = self.playable_transitions
 
-        # First, try to load the page via its DOM#url in case it can restore
-        # itself via its URL fragments and whatnot.
-        browser.goto url, take_snapshot: take_snapshot
+        # First transition will always be the page load and if that's all there
+        # is then we're done.
+        if playables.size == 1
+            surl = playables.first.options[:url]
 
-        playables = playable_transitions
+            browser.print_debug "Only have a URL load transition: #{surl}"
+            browser.goto surl
 
-        # If we've got no playable transitions then we're done.
+            return browser
+
+        # Alternatively, try to load the page via its DOM#url in case it can
+        # restore itself via its URL fragments and whatnot.
+        else
+            browser.goto url
+        end
+
+        # No transitions, nothing more to be done.
         return browser if playables.empty?
 
-        browser_page = browser.to_page
+        browser_dom = browser.state
 
-        # We were probably led to an out-of-scope page via a JS redirect,
-        # bail out.
-        return if browser_page.code == 0
+        # We were probably led to an out-of-scope page via a JS redirect, bail out.
+        return if !browser_dom
 
         # Check to see if just loading the DOM URL was enough.
         #
@@ -167,8 +167,8 @@ class DOM
         # page can restore itself via its URL (using fragment data most probably),
         # the document may still be different from when our snapshot was captured.
         #
-        # However, this check doesn't cost us much so it's worth a shot.
-        if browser_page.dom === self
+        # However, it doesn't cost us anything so it's worth a shot.
+        if browser_dom == self
             browser.print_debug "Loaded snapshot by URL: #{url}"
             return browser
         end
@@ -176,10 +176,7 @@ class DOM
         browser.print_debug "Could not load snapshot by URL (#{url}), " <<
             'will load by replaying transitions.'
 
-        # The URL restore failed, so, navigate to the pure version of the URL and
-        # replay its transitions.
-        browser.preload( page )
-
+        # The URL restore failed, replay its transitions.
         playables.each do |transition|
             next if transition.play( browser )
 
@@ -194,11 +191,21 @@ class DOM
         browser
     end
 
+    def state
+        self.class.new(
+            url:         @url,
+            digest:      @digest,
+            transitions: @transitions.dup,
+            skip_states: @skip_states.dup
+        )
+    end
+
     # @return   [Hash]
     def to_h
         {
             url:                  url,
             transitions:          transitions.map(&:to_hash),
+            cookies:              cookies.map(&:to_hash),
             digest:               digest,
             skip_states:          skip_states,
             data_flow_sinks:      data_flow_sinks.map(&:to_hash),
@@ -225,11 +232,24 @@ class DOM
         {
             'url'                  => url,
             'transitions'          => transitions.map(&:to_rpc_data),
+            'cookies'              => cookies.map(&:to_rpc_data),
             'digest'               => digest,
             'skip_states'          => skip_states ? skip_states.collection.to_a : [],
             'data_flow_sinks'      => data_flow_sinks.map(&:to_rpc_data),
             'execution_flow_sinks' => execution_flow_sinks.map(&:to_rpc_data)
         }
+    end
+
+    def marshal_dump
+        instance_variables.inject({}) do |h, iv|
+            next h if iv == :@page
+            h[iv] = instance_variable_get( iv )
+            h
+        end
+    end
+
+    def marshal_load( h )
+        h.each { |k, v| instance_variable_set( k, v ) }
     end
 
     # @param    [Hash]  data
@@ -242,6 +262,9 @@ class DOM
             value = case name
                         when 'transitions'
                             value.map { |t| Transition.from_rpc_data t }
+
+                        when 'cookies'
+                            value.map { |c| Cookie.from_rpc_data c }
 
                         when 'data_flow_sinks'
                             value.map do |entry|
@@ -270,35 +293,11 @@ class DOM
     end
 
     def hash
-        # TODO: Maybe raise error if #digest is not set?
-        digest.persistent_hash
+        digest || super
     end
 
     def ==( other )
         hash == other.hash
-    end
-
-    # @note Removes the URL strings of both DOMs from each other's document
-    #        before comparing.
-    #
-    # @param    [DOM]   other
-    # @return   [Bool]
-    #   `true` if the compared DOM trees are effectively the same, `false` otherwise.
-    def ===( other )
-        digest_without_urls( other ) == other.digest_without_urls( self )
-    end
-
-    protected
-
-    def digest_without_urls( other )
-        if !digest.include?( other.url ) && !digest.include?( other.page.url )
-            return digest
-        end
-
-        d = digest.dup
-        d.gsub!( other.url, '' )
-        d.gsub!( other.page.url, '' )
-        d
     end
 
 end

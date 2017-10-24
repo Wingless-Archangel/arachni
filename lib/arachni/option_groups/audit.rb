@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -41,6 +41,14 @@ class Audit < Arachni::OptionGroup
     #
     # @see Element::Capabilities::Mutable#each_mutation
     attr_accessor :parameter_names
+
+    # @note Default is `false`.
+    #
+    # @return    [Bool]
+    #   Allows checks to sent payloads in raw format, without HTTP encoding.
+    #
+    # @see Element::Capabilities::Mutable#each_mutation
+    attr_accessor :with_raw_payloads
 
     # @note Default is `false`.
     #
@@ -147,12 +155,32 @@ class Audit < Arachni::OptionGroup
     #   Audit XML request inputs.
     attr_accessor :xmls
 
+    # @note Default is `false`.
+    #
+    # @return    [Bool]
+    #   Audit DOM inputs.
+    attr_accessor :ui_inputs
+    alias :ui_input_doms  :ui_inputs
+    alias :ui_input_doms=  :ui_inputs=
+
+    # @note Default is `false`.
+    #
+    # @return    [Bool]
+    #   Audit DOM UI forms -- i.e. combination or orphan inputs and buttons.
+    attr_accessor :ui_forms
+    alias :ui_form_doms  :ui_forms
+    alias :ui_form_doms=  :ui_forms=
+
     set_defaults(
         parameter_values:        true,
         exclude_vector_patterns: [],
         include_vector_patterns: [],
         link_templates:          []
     )
+
+    def with_raw_payloads?
+        !!@with_raw_payloads
+    end
 
     # @param    [Array<Regexp>] templates
     #   Regular expressions with named captures, serving as templates used to
@@ -165,7 +193,9 @@ class Audit < Arachni::OptionGroup
         return @link_templates = [] if !templates
 
         @link_templates = [templates].flatten.compact.map do |s|
-            template = s.is_a?( Regexp ) ? s : Regexp.new( s.to_s )
+            template = s.is_a?( Regexp ) ?
+                s :
+                Regexp.new( s.to_s, Regexp::IGNORECASE )
 
             if template.names.empty?
                 fail Error::InvalidLinkTemplate,
@@ -180,7 +210,9 @@ class Audit < Arachni::OptionGroup
     %w(include_vector_patterns exclude_vector_patterns).each do |m|
         define_method "#{m}=" do |patterns|
             patterns = [patterns].flatten.compact.
-                map { |s| s.is_a?( Regexp ) ? s : Regexp.new( s.to_s ) }
+                map { |s| s.is_a?( Regexp ) ?
+                s :
+                Regexp.new( s.to_s, Regexp::IGNORECASE ) }
 
             instance_variable_set "@#{m}".to_sym, patterns
         end
@@ -235,6 +267,10 @@ class Audit < Arachni::OptionGroup
     #   * `:forms`
     #   * `:cookies`
     #   * `:headers`
+    #   * `:ui_inputs`
+    #   * `:ui_forms`
+    #   * `:xmls`
+    #   * `:jsons`
     #
     # @return   [Bool]
     #
@@ -250,8 +286,8 @@ class Audit < Arachni::OptionGroup
 
     [:links, :forms, :cookies, :headers, :cookies_extensively,
      :with_both_http_methods, :link_doms, :form_doms, :cookie_doms,
-     :jsons, :xmls, :parameter_values, :parameter_names, :with_extra_parameter
-    ].each do |attribute|
+     :jsons, :xmls, :ui_inputs, :ui_input_doms, :ui_forms, :ui_form_doms,
+     :parameter_values, :parameter_names, :with_extra_parameter].each do |attribute|
         define_method "#{attribute}?" do
             !!send( attribute )
         end
@@ -275,7 +311,7 @@ class Audit < Arachni::OptionGroup
     def to_h
         h = super
         [:link_templates, :include_vector_patterns, :exclude_vector_patterns].each do |k|
-            h[k] = h[k].map(&:to_s)
+            h[k] = h[k].map(&:source)
         end
         h
     end

@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -49,6 +49,7 @@ class Framework
         @sitemap = {}
 
         @page_queue            = Support::Database::Queue.new
+        @page_queue.max_buffer_size = 10
         @page_queue_total_size = 0
 
         @url_queue                 = Support::Database::Queue.new
@@ -89,7 +90,19 @@ class Framework
     # @param    [Page]  page
     #   Page with which to update the {#sitemap}.
     def add_page_to_sitemap( page )
-        sitemap[page.dom.url] = page.code
+        update_sitemap( page.dom.url => page.code )
+    end
+
+    def update_sitemap( entries )
+        entries.each do |url, code|
+            # Feedback from the trainer or whatever, don't include it in the
+            # sitemap, it'll just add noise.
+            next if url.include?( Utilities.random_seed )
+
+            @sitemap[url] = code
+        end
+
+        @sitemap
     end
 
     def dump( directory )

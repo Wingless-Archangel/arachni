@@ -1,10 +1,12 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
     web site for more information on licensing and terms of use.
 =end
+
+require_relative '../dom'
 
 module Arachni::Element
 class LinkTemplate
@@ -12,9 +14,21 @@ class LinkTemplate
 # Provides access to DOM operations for {LinkTemplate link templates}.
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
-class DOM < Base
+class DOM < DOM
+
+    # Load and include all link-specific capability overrides.
+    lib = "#{File.dirname( __FILE__ )}/#{File.basename(__FILE__, '.rb')}/capabilities/**/*.rb"
+    Dir.glob( lib ).each { |f| require f }
+
+    # Generic element capabilities.
     include Arachni::Element::Capabilities::WithNode
-    include Arachni::Element::Capabilities::Auditable::DOM
+    include Arachni::Element::DOM::Capabilities::Locatable
+    include Arachni::Element::DOM::Capabilities::Mutable
+    include Arachni::Element::DOM::Capabilities::Inputtable
+    include Arachni::Element::DOM::Capabilities::Auditable
+
+    # LinkTtemplate-specific overrides.
+    include Capabilities::Submittable
 
     # @return   [String, nil]
     #   URL fragment.
@@ -37,7 +51,7 @@ class DOM < Base
 
     # Loads {#to_s}.
     def trigger
-        browser.goto to_s, take_snapshot: false, update_transitions: false
+        [ browser.goto( to_s, take_snapshot: false, update_transitions: false ) ]
     end
 
     # @param    [String]    name
@@ -77,7 +91,7 @@ class DOM < Base
     end
 
     def self.data_from_node( node )
-        href = node.attributes['href'].to_s
+        href = node['href'].to_s
         return if !href.include? '#'
 
         fragment = Link.decode( href.split( '#', 2 ).last.to_s )

@@ -4,10 +4,30 @@ describe Arachni::Element::Link do
     html = '<a href="/stuff#?stuff=blah">Bla</a>'
 
     it_should_behave_like 'element'
-    it_should_behave_like 'with_node', html
+    it_should_behave_like 'with_node'
     it_should_behave_like 'with_dom',  html
     it_should_behave_like 'refreshable'
+    it_should_behave_like 'with_source'
+    it_should_behave_like 'with_auditor'
+
+    it_should_behave_like 'submittable'
+    it_should_behave_like 'inputtable'
+    it_should_behave_like 'mutable'
     it_should_behave_like 'auditable'
+    it_should_behave_like 'buffered_auditable'
+    it_should_behave_like 'line_buffered_auditable'
+
+    before :each do
+        @framework ||= Arachni::Framework.new
+        @auditor     = Auditor.new( Arachni::Page.from_url( url ), @framework )
+    end
+
+    after :each do
+        @framework.reset
+        reset_options
+    end
+
+    let(:auditor) { @auditor }
 
     def auditable_extract_parameters( resource )
         YAML.load( resource.body )
@@ -31,19 +51,19 @@ describe Arachni::Element::Link do
     end
 
     it 'is assigned to Arachni::Link for easy access' do
-        Arachni::Link.should == described_class
+        expect(Arachni::Link).to eq(described_class)
     end
 
     describe '#initialize' do
-        describe :action do
+        describe ':action' do
             it 'sets #action' do
                 action = "#{url}stuff"
-                described_class.new( url: url, action: action ).action.should == action
+                expect(described_class.new( url: url, action: action ).action).to eq(action)
             end
 
             context 'when nil' do
                 it 'defaults to :url' do
-                    described_class.new( url: url ).action.should == url
+                    expect(described_class.new( url: url ).action).to eq(url)
                 end
             end
         end
@@ -72,11 +92,11 @@ describe Arachni::Element::Link do
         end
 
         it 'removes the URL query' do
-            subject.action.should == url
+            expect(subject.action).to eq(url)
         end
 
         it 'merges the URL query parameters with the given :inputs' do
-            subject.inputs.should == query_inputs.merge( option_inputs )
+            expect(subject.inputs).to eq(query_inputs.merge( option_inputs ))
         end
 
         context 'when URL query parameters and :inputs have the same name' do
@@ -88,7 +108,7 @@ describe Arachni::Element::Link do
             end
 
             it 'it gives precedence to the :inputs' do
-                subject.inputs.should == query_inputs.merge( option_inputs )
+                expect(subject.inputs).to eq(query_inputs.merge( option_inputs ))
             end
         end
 
@@ -100,9 +120,9 @@ describe Arachni::Element::Link do
                     url:    url,
                     action: "#{url}/articles/some-stuff/23"
                 )
-                link.action.should == url + 'articles.php'
-                link.url.should == url
-                link.inputs.should == { 'id'  => '23' }
+                expect(link.action).to eq(url + 'articles.php')
+                expect(link.url).to eq(url)
+                expect(link.inputs).to eq({ 'id'  => '23' })
             end
         end
     end
@@ -111,33 +131,33 @@ describe Arachni::Element::Link do
         context 'when there are no DOM#inputs' do
             it 'returns nil' do
                 subject.source = '<a href="/stuff">Bla</a>'
-                subject.dom.should be_nil
+                expect(subject.dom).to be_nil
             end
         end
 
         context 'when there is no #node' do
             it 'returns nil' do
                 subject.source = nil
-                subject.dom.should be_nil
+                expect(subject.dom).to be_nil
             end
         end
     end
 
     describe '#simple' do
         it 'should return a simplified version as a hash' do
-            subject.simple.should == { subject.action => subject.inputs }
+            expect(subject.simple).to eq({ subject.action => subject.inputs })
         end
     end
 
     describe '#to_s' do
         it 'returns a URL' do
-            subject.to_s.should == "#{subject.action}?name1=value1&name2=value2"
+            expect(subject.to_s).to eq("#{subject.action}?name1=value1&name2=value2")
         end
     end
 
     describe '#type' do
         it 'should be "link"' do
-            subject.type.should == :link
+            expect(subject.type).to eq(:link)
         end
     end
 
@@ -149,7 +169,7 @@ describe Arachni::Element::Link do
             c = subject.dup
             c.source = '<a href="/stuff#?stuff=blooh">Bla</a>'
 
-            c.coverage_id.should == e.coverage_id
+            expect(c.coverage_id).to eq(e.coverage_id)
 
             e = subject.dup
             e.source = '<a href="/stuff#?stuff=blah">Bla</a>'
@@ -157,7 +177,7 @@ describe Arachni::Element::Link do
             c = subject.dup
             c.source = '<a href="/stuff#?stuff2=blooh">Bla</a>'
 
-            c.coverage_id.should_not == e.coverage_id
+            expect(c.coverage_id).not_to eq(e.coverage_id)
         end
     end
 
@@ -169,7 +189,7 @@ describe Arachni::Element::Link do
             c = subject.dup
             c.source = '<a href="/stuff#?stuff=blah">Bla</a>'
 
-            c.id.should == e.id
+            expect(c.id).to eq(e.id)
 
             e = subject.dup
             e.source = '<a href="/stuff#?stuff=blah">Bla</a>'
@@ -177,28 +197,63 @@ describe Arachni::Element::Link do
             c = subject.dup
             c.source = '<a href="/stuff#?stuff=blooh">Bla</a>'
 
-            c.id.should_not == e.id
+            expect(c.id).not_to eq(e.id)
         end
     end
 
     describe '#to_rpc_data' do
         it "does not include 'dom_data'" do
             subject.source = html
-            subject.dom.should be_true
+            expect(subject.dom).to be_truthy
 
-            subject.to_rpc_data.should_not include 'dom_data'
+            expect(subject.to_rpc_data).not_to include 'dom_data'
         end
     end
 
-    describe '.from_document' do
+    describe '.from_parser' do
+        let(:parser) do
+            Arachni::Parser.new(
+                Arachni::HTTP::Response.new(
+                    url: url,
+                    body: link_html,
+                    headers: {
+                        'Content-Type' => 'text/html'
+                    })
+            )
+        end
+
         context 'when the response does not contain any links' do
+            let(:link_html) do
+                html = '
+                    <html>
+                        <body>
+                        </body>
+                    </html>'
+            end
+
             it 'should return an empty array' do
-                described_class.from_document( '', '' ).should be_empty
+                expect(described_class.from_parser( parser )).to be_empty
             end
         end
-        context 'when links have actions that are out of scope' do
-            it 'ignores them' do
+
+        context 'when links have actions that just fragments' do
+            let(:link_html) do
                 html = '
+                    <html>
+                        <body>
+                            <a href="#stuff"></a>
+                        </body>
+                    </html>'
+            end
+
+            it 'ignores them' do
+                expect(described_class.from_parser( parser )).to be_empty
+            end
+        end
+
+        context 'when links have actions that are out of scope' do
+            let(:link_html) do
+                '
                     <html>
                         <body>
                             <a href="' + url + '/exclude?param_one=value_one&param_two=value_two"></a>
@@ -206,35 +261,40 @@ describe Arachni::Element::Link do
                             <a href="' + url + '/stuff?param_one=value_one&param_two=value_two"></a>
                         </body>
                     </html>'
+            end
 
+            it 'ignores them' do
                 Arachni::Options.scope.exclude_path_patterns = [/exclude/]
 
-                links = described_class.from_document( url, html )
-                links.size.should == 1
-                links.first.action.should == url + 'stuff'
+                links = described_class.from_parser( parser )
+                expect(links.size).to eq(1)
+                expect(links.first.action).to eq(url + 'stuff')
             end
         end
+
         context 'when the response contains links' do
-            it 'should return an array of links' do
-                html = '
+            let(:link_html) do
+                '
                 <html>
                     <body>
                         <a href="' + url + '/test2?param_one=value_one&param_two=value_two"></a>
                     </body>
                 </html>'
+            end
 
-                link = described_class.from_document( url, html ).first
-                link.action.should == url + 'test2'
-                link.url.should == url
-                link.inputs.should == {
+            it 'should return an array of links' do
+                link = described_class.from_parser( parser ).first
+                expect(link.action).to eq(url + 'test2')
+                expect(link.url).to eq(url)
+                expect(link.inputs).to eq({
                     'param_one'  => 'value_one',
                     'param_two'  => 'value_two'
-                }
+                })
             end
+
             context 'and includes a base attribute' do
-                it 'should return an array of links with adjusted URIs' do
-                    base_url = "#{url}this_is_the_base/"
-                    html = '
+                let(:link_html) do
+                    '
                     <html>
                         <head>
                             <base href="' + base_url + '" />
@@ -243,20 +303,25 @@ describe Arachni::Element::Link do
                             <a href="test?param_one=value_one&param_two=value_two"></a>
                         </body>
                     </html>'
+                end
+                let(:base_url) { "#{url}this_is_the_base/" }
 
-                    link = described_class.from_document( url, html ).first
-                    link.action.should == base_url + 'test'
-                    link.url.should == url
-                    link.inputs.should == {
+                it 'should return an array of links with adjusted URIs' do
+                    ap parser.base
+
+                    link = described_class.from_parser( parser ).first
+                    expect(link.action).to eq(base_url + 'test')
+                    expect(link.url).to eq(url)
+                    expect(link.inputs).to eq({
                         'param_one'  => 'value_one',
                         'param_two'  => 'value_two'
-                    }
+                    })
                 end
             end
         end
 
         context 'when its value is' do
-            let(:link) { described_class.from_document( url, link_html ).first }
+            let(:link) { described_class.from_parser( parser ).first }
             let(:value) { 'a' * size }
             let(:href) { "test?param=#{value}" }
             let(:link_html) do
@@ -273,7 +338,7 @@ describe Arachni::Element::Link do
                 let(:size) { described_class::MAX_SIZE }
 
                 it 'returns empty array' do
-                    link.should be_nil
+                    expect(link).to be_nil
                 end
             end
 
@@ -281,7 +346,7 @@ describe Arachni::Element::Link do
                 let(:size) { described_class::MAX_SIZE + 1 }
 
                 it 'sets empty value' do
-                    link.should be_nil
+                    expect(link).to be_nil
                 end
             end
 
@@ -289,7 +354,7 @@ describe Arachni::Element::Link do
                 let(:size) { described_class::MAX_SIZE - 1 }
 
                 it 'leaves the values alone' do
-                    link.inputs['param'].should_not be_empty
+                    expect(link.inputs['param']).not_to be_empty
                 end
             end
         end
@@ -298,26 +363,26 @@ describe Arachni::Element::Link do
     describe '.encode' do
         it 'URL-encodes the passed string' do
             v = '% value\ +=&;'
-            described_class.encode( v ).should == '%25%20value%5C%20%2B%3D%26%3B'
+            expect(described_class.encode( v )).to eq('%25%20value%5C%20%2B%3D%26%3B')
         end
     end
     describe '#encode' do
         it 'URL-encodes the passed string' do
             v = '% value\ +=&;'
-            subject.encode( v ).should == described_class.encode( v )
+            expect(subject.encode( v )).to eq(described_class.encode( v ))
         end
     end
 
     describe '.decode' do
         it 'URL-decodes the passed string' do
             v = '%25%20value%5C%20%2B%3D%26%3B'
-            described_class.decode( v ).should == URI.decode( v )
+            expect(described_class.decode( v )).to eq(URI.decode( v ))
         end
     end
     describe '#decode' do
         it 'URL-decodes the passed string' do
             v = '%25%20value%5C%20%2B%3D%26%3B'
-            subject.decode( v ).should == described_class.decode( v )
+            expect(subject.decode( v )).to eq(described_class.decode( v ))
         end
     end
 
@@ -327,7 +392,7 @@ describe Arachni::Element::Link do
                 url:  url + '/?param=val',
                 body: '<a href="test?param_one=value_one&param_two=value_two"></a>'
             )
-            described_class.from_response( res ).size.should == 2
+            expect(described_class.from_response( res ).size).to eq(2)
         end
     end
 end

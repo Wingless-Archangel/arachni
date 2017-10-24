@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -16,6 +16,11 @@ module Capabilities
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
 module Inputtable
     include Arachni::Element::Capabilities::Inputtable
+
+    INVALID_INPUT_DATA = [
+        # Protocol URLs require a // which we can't preserve.
+        '://'
+    ]
 
     # @param    [String]    name
     #   Input name.

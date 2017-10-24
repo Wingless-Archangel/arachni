@@ -36,7 +36,13 @@ describe Arachni::Page::DOM do
     subject { dom }
 
     it "supports #{Arachni::RPC::Serializer}" do
-        subject.should == Arachni::RPC::Serializer.deep_clone( subject )
+        expect(subject).to eq(Arachni::RPC::Serializer.deep_clone( subject ))
+    end
+
+    it 'Marshaling ignores the page' do
+        expect(subject.page).to be_kind_of Arachni::Page
+        dom = Marshal.load( Marshal.dump( subject ) )
+        expect(dom.page).to be_nil
     end
 
     describe '#to_rpc_data' do
@@ -44,18 +50,18 @@ describe Arachni::Page::DOM do
 
         %w(url digest).each do |attribute|
             it "includes '#{attribute}'" do
-                data[attribute].should == subject.send( attribute )
+                expect(data[attribute]).to eq(subject.send( attribute ))
             end
         end
 
-        %w(data_flow_sinks execution_flow_sinks).each do |attribute|
+        %w(cookies data_flow_sinks execution_flow_sinks cookies).each do |attribute|
             it "includes '#{attribute}'" do
-                data[attribute].should == subject.send(attribute).map(&:to_rpc_data)
+                expect(data[attribute]).to eq(subject.send(attribute).map(&:to_rpc_data))
             end
         end
 
         it "includes 'skip_states'" do
-            data['skip_states'].should == subject.skip_states.collection.to_a
+            expect(data['skip_states']).to eq(subject.skip_states.collection.to_a)
         end
     end
 
@@ -63,23 +69,23 @@ describe Arachni::Page::DOM do
         let(:restored) { described_class.from_rpc_data data }
         let(:data) { Arachni::RPC::Serializer.rpc_data( subject ) }
 
-        %w(url transitions digest skip_states data_flow_sinks
+        %w(url cookies transitions digest skip_states data_flow_sinks
             execution_flow_sinks).each do |attribute|
             it "restores '#{attribute}'" do
-                restored.send( attribute ).should == subject.send( attribute )
+                expect(restored.send( attribute )).to eq(subject.send( attribute ))
             end
         end
     end
 
     describe '#url' do
         it 'defaults to the page URL' do
-            dom.url.should == create_page.url
+            expect(dom.url).to eq(create_page.url)
         end
     end
 
     describe '#transitions' do
         it 'defaults to an empty Array' do
-            empty_dom.transitions.should == []
+            expect(empty_dom.transitions).to eq([])
         end
     end
 
@@ -93,17 +99,17 @@ describe Arachni::Page::DOM do
                 { "<a href='javascript:clickMe();'>" => :click },
             ].map { |t| described_class::Transition.new *t.first }
 
-            dom.playable_transitions.should ==  [
+            expect(dom.playable_transitions).to eq([
                 { :page                              => :load },
                 { "<body onload='loadStuff();'>"     => :onload },
                 { "<a href='javascript:clickMe();'>" => :click },
-            ].map { |t| described_class::Transition.new *t.first }
+            ].map { |t| described_class::Transition.new *t.first })
         end
     end
 
     describe '#data_flow_sinks' do
         it 'defaults to an empty Array' do
-            empty_dom.data_flow_sinks.should == []
+            expect(empty_dom.data_flow_sinks).to eq([])
         end
     end
 
@@ -124,13 +130,13 @@ describe Arachni::Page::DOM do
             ]
 
             dom.data_flow_sinks = sink
-            dom.data_flow_sinks.should == sink
+            expect(dom.data_flow_sinks).to eq(sink)
         end
     end
 
     describe '#execution_flow_sinks' do
         it 'defaults to an empty Array' do
-            empty_dom.execution_flow_sinks.should == []
+            expect(empty_dom.execution_flow_sinks).to eq([])
         end
     end
 
@@ -151,7 +157,7 @@ describe Arachni::Page::DOM do
             ]
 
             dom.execution_flow_sinks = sink
-            dom.execution_flow_sinks.should == sink
+            expect(dom.execution_flow_sinks).to eq(sink)
         end
     end
 
@@ -160,7 +166,7 @@ describe Arachni::Page::DOM do
             transitions = [ { element: :stuffed } ]
 
             dom.transitions = transitions
-            dom.transitions.should == transitions
+            expect(dom.transitions).to eq(transitions)
         end
     end
 
@@ -169,7 +175,7 @@ describe Arachni::Page::DOM do
             skip_states = Arachni::Support::LookUp::HashSet.new.tap { |h| h << 0 }
 
             dom.skip_states = skip_states
-            dom.skip_states.should == skip_states
+            expect(dom.skip_states).to eq(skip_states)
         end
     end
 
@@ -183,7 +189,7 @@ describe Arachni::Page::DOM do
                 { "<a href='javascript:clickMe();'>" => :click },
             ].map { |t| described_class::Transition.new *t.first }
 
-            dom.depth.should == 3
+            expect(dom.depth).to eq(3)
         end
     end
 
@@ -196,7 +202,26 @@ describe Arachni::Page::DOM do
                 empty_dom.push_transition described_class::Transition.new( *t.first )
             end
 
-            empty_dom.transitions.should == transitions.map { |t| described_class::Transition.new *t.first }
+            expect(empty_dom.transitions).to eq(transitions.map { |t| described_class::Transition.new *t.first })
+        end
+    end
+
+    describe '#state' do
+        it 'returns a Page::DOM with enough info to reproduce the current state' do
+            expect(dom.digest).to_not be_empty
+            expect(dom.transitions).to_not be_empty
+            expect(dom.data_flow_sinks).to_not be_empty
+            expect(dom.execution_flow_sinks).to_not be_empty
+
+            state = dom.state
+
+            expect(state.page).to be_nil
+            expect(state.url).to eq dom.url
+            expect(state.digest).to eq dom.digest
+            expect(state.transitions).to eq dom.transitions
+            expect(state.skip_states).to eq dom.skip_states
+            expect(state.data_flow_sinks).to be_empty
+            expect(state.execution_flow_sinks).to be_empty
         end
     end
 
@@ -204,6 +229,12 @@ describe Arachni::Page::DOM do
         it 'returns a hash with DOM data' do
             data = {
                 url:         'http://test/dom',
+                cookies:     [
+                    Arachni::Element::Cookie.new(
+                        url:    'http://test/dom',
+                        inputs: { 'name' => 'val' }
+                    )
+                ],
                 skip_states: Arachni::Support::LookUp::HashSet.new.tap { |h| h << 0 },
                 transitions: [
                     { element:  :stuffed },
@@ -217,21 +248,23 @@ describe Arachni::Page::DOM do
             data[:transitions].each do |t|
                 empty_dom.push_transition t
             end
+            empty_dom.cookies = data[:cookies]
             empty_dom.skip_states = data[:skip_states]
             empty_dom.data_flow_sinks = data[:data_flow_sinks]
             empty_dom.execution_flow_sinks = data[:execution_flow_sinks]
 
-            empty_dom.to_h.should ==  {
-                url:                 data[:url],
-                transitions:         data[:transitions].map(&:to_hash),
-                digest:              empty_dom.digest,
-                skip_states:         data[:skip_states],
+            expect(empty_dom.to_h).to eq({
+                url:                  data[:url],
+                cookies:              data[:cookies].map(&:to_hash),
+                transitions:          data[:transitions].map(&:to_hash),
+                digest:               empty_dom.digest,
+                skip_states:          data[:skip_states],
                 data_flow_sinks:      data[:data_flow_sinks].map(&:to_hash),
                 execution_flow_sinks: data[:execution_flow_sinks].map(&:to_hash)
-            }
+            })
         end
         it 'is aliased to #to_h' do
-            empty_dom.to_h.should == empty_dom.to_h
+            expect(empty_dom.to_h).to eq(empty_dom.to_h)
         end
     end
 
@@ -243,10 +276,10 @@ describe Arachni::Page::DOM do
             dom2 = empty_dom.dup
             dom2.digest = 'stuff'
 
-            dom.hash.should == dom2.hash
+            expect(dom.hash).to eq(dom2.hash)
 
             dom2.digest = 'other stuff'
-            dom.hash.should_not == dom2.hash
+            expect(dom.hash).not_to eq(dom2.hash)
         end
     end
 
@@ -259,15 +292,15 @@ describe Arachni::Page::DOM do
                 pages = browser.explore_and_flush
                 page  = pages.last
 
-                page.url.should == url
-                page.dom.url.should == "#{url}#destination"
-                page.body.should include 'final-vector'
+                expect(page.url).to eq(url)
+                expect(page.dom.url).to eq("#{url}#destination")
+                expect(page.body).to include 'final-vector'
 
                 page.dom.transitions.clear
-                page.dom.transitions.should be_empty
+                expect(page.dom.transitions).to be_empty
 
                 browser.load page
-                browser.source.should include 'final-vector'
+                expect(browser.source).to include 'final-vector'
             end
         end
 
@@ -278,29 +311,29 @@ describe Arachni::Page::DOM do
                 browser.load url
                 page = browser.explore_and_flush.last
 
-                page.url.should == url
-                page.dom.url.should == "#{url}#destination"
-                page.body.should include 'final-vector'
+                expect(page.url).to eq(url)
+                expect(page.dom.url).to eq("#{url}#destination")
+                expect(page.body).to include 'final-vector'
 
                 browser.load page
-                browser.source.should include 'final-vector'
+                expect(browser.source).to include 'final-vector'
 
                 page.dom.transitions.clear
-                page.dom.transitions.should be_empty
+                expect(page.dom.transitions).to be_empty
 
                 browser.load page
-                browser.source.should_not include 'final-vector'
+                expect(browser.source).not_to include 'final-vector'
             end
         end
 
         context 'when a transition could not be replayed' do
             it 'returns nil' do
-                Arachni::Page::DOM::Transition.any_instance.stub(:play){ false }
+                allow_any_instance_of(Arachni::Page::DOM::Transition).to receive(:play){ false }
 
                 browser.load "#{@url}restore/by-transitions"
                 page = browser.explore_and_flush.last
 
-                page.dom.restore( browser ).should be_nil
+                expect(page.dom.restore( browser )).to be_nil
             end
         end
     end

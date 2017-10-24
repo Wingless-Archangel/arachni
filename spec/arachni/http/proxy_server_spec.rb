@@ -6,10 +6,13 @@ describe Arachni::HTTP::ProxyServer do
         @url = web_server_url_for( :proxy_server ) + '/'
     end
 
+    let(:address) { Socket.ip_address_list.find(&:ipv4?).ip_address }
+    let(:port) { Arachni::Utilities.available_port }
+
     def via_proxy( proxy, url )
         Typhoeus::Request.get(
             url,
-            proxy: proxy.address,
+            proxy: proxy.url,
             ssl_verifypeer:  false,
             ssl_verifyhost:  0
         )
@@ -22,14 +25,14 @@ describe Arachni::HTTP::ProxyServer do
                 '1' => '2',
                 '3' => '4'
             },
-            proxy: proxy.address,
+            proxy: proxy.url,
             ssl_verifypeer:  false,
             ssl_verifyhost:  0
         )
     end
 
     def test_proxy( proxy )
-        via_proxy( proxy, @url ).body.should == 'GET'
+        expect(via_proxy( proxy, @url ).body).to eq('GET')
     end
 
     it 'supports SSL interception' do
@@ -38,8 +41,12 @@ describe Arachni::HTTP::ProxyServer do
         proxy = described_class.new
         proxy.start_async
 
-        via_proxy( proxy, url ).body.should == 'HTTPS GET'
+        response = via_proxy( proxy, url )
+        expect(response.code).to eq 200
+        expect(response.body).to eq 'HTTPS GET'
     end
+
+    it 'supports WebSockets'
 
     it 'removes any size limits on the HTTP responses' do
         Arachni::Options.http.response_max_size = 1
@@ -49,44 +56,71 @@ describe Arachni::HTTP::ProxyServer do
         test_proxy( proxy )
     end
 
-    describe '#initialize' do
-        describe :address do
-            it 'sets the bind address' do
-                address = WEBrick::Utils::getservername
+    context 'when the response is text-based' do
+        let(:url) { "#{@url}/text" }
 
+        it 'sets charset encoding to UTF8' do
+            proxy = described_class.new
+            proxy.start_async
+
+            expect(via_proxy( proxy, url ).headers['Content-Type']).to eq 'text/html; charset=utf-8'
+        end
+
+        it 'transcodes to UTF-8' do
+            proxy = described_class.new
+            proxy.start_async
+
+            expect(via_proxy( proxy, url ).body.encoding.name).to eq 'UTF-8'
+        end
+    end
+
+    context 'when the response is binary' do
+        let(:url) { "#{@url}/binary" }
+
+        it 'does not add a charset' do
+            proxy = described_class.new
+            proxy.start_async
+
+            expect(via_proxy( proxy, url ).headers['Content-Type']).to eq 'application/binary'
+        end
+    end
+
+    describe '#initialize' do
+        describe ':address' do
+            it 'sets the bind address' do
                 proxy = described_class.new( address: address )
                 proxy.start_async
 
-                proxy.address.split( ':' ).first.should == address
+                expect(URI(proxy.url).host).to eq(address)
                 test_proxy proxy
             end
         end
 
-        describe :port do
+        describe ':port' do
             it 'sets the listen port' do
                 port = Arachni::Utilities.available_port
 
                 proxy = described_class.new( port: port )
                 proxy.start_async
 
-                proxy.address.split( ':' ).last.should == port.to_s
+                expect(URI(proxy.url).port).to eq(port)
                 test_proxy proxy
             end
         end
 
-        describe :timeout do
+        describe ':timeout' do
             it 'sets the HTTP request timeout' do
-                proxy = described_class.new( timeout: 1_000 )
+                proxy = described_class.new( timeout: 1 )
                 proxy.start_async
 
                 sleep_url = @url + 'sleep'
 
-                Typhoeus::Request.get( sleep_url ).code.should_not == 0
-                via_proxy( proxy, sleep_url ).code.should == 0
+                expect(Typhoeus::Request.get( sleep_url ).code).not_to eq(0)
+                expect(via_proxy( proxy, sleep_url ).code).to eq(504)
             end
         end
 
-        describe :concurrency do
+        describe ':concurrency' do
             it 'sets the HTTP request concurrency' do
                 sleep_url = @url + 'sleep'
 
@@ -98,7 +132,7 @@ describe Arachni::HTTP::ProxyServer do
                     threads << Thread.new { via_proxy( proxy, sleep_url ) }
                 end
                 threads.each(&:join)
-                (Time.now - time).to_i.should == 5
+                expect((Time.now - time).to_i).to eq(5)
 
                 proxy = described_class.new( concurrency: 1 )
                 proxy.start_async
@@ -108,51 +142,51 @@ describe Arachni::HTTP::ProxyServer do
                     threads << Thread.new { via_proxy( proxy, sleep_url ) }
                 end
                 threads.each(&:join)
-                (Time.now - time).to_i.should == 10
+                expect((Time.now - time).to_i).to eq(10)
             end
         end
 
-        describe :request_handler do
+        describe ':request_handler' do
             it 'sets a block to handle each HTTP request before the request is forwarded to the origin server' do
                 called = false
                 proxy = described_class.new(
                     request_handler: proc do |request, _|
-                        request.should be_kind_of Arachni::HTTP::Request
+                        expect(request).to be_kind_of Arachni::HTTP::Request
                         called = true
                     end
                 )
                 proxy.start_async
                 test_proxy proxy
 
-                called.should be_true
+                expect(called).to be_truthy
             end
 
             it 'sets a block to handle each HTTP response before the request is forwarded to the origin server' do
                 called = false
                 proxy = described_class.new(
                     request_handler: proc do |_, response|
-                        response.should be_kind_of Arachni::HTTP::Response
+                        expect(response).to be_kind_of Arachni::HTTP::Response
                         called = true
                     end
                 )
                 proxy.start_async
                 test_proxy proxy
 
-                called.should be_true
+                expect(called).to be_truthy
             end
 
             it 'assigns the request to the response' do
                 called = false
                 proxy = described_class.new(
                     request_handler: proc do |_, response|
-                        response.request.should be_kind_of Arachni::HTTP::Request
+                        expect(response.request).to be_kind_of Arachni::HTTP::Request
                         called = true
                     end
                 )
                 proxy.start_async
                 test_proxy proxy
 
-                called.should be_true
+                expect(called).to be_truthy
             end
 
             it 'fills in raw request data' do
@@ -166,17 +200,18 @@ describe Arachni::HTTP::ProxyServer do
                 proxy.start_async
                 post_via_proxy( proxy, @url )
 
-                request.headers_string.should ==
-                    "POST / HTTP/1.1\r\n" <<
+                expect(request.headers_string.split( "\r\n" ).sort).to eq(
+                    ("POST / HTTP/1.1\r\n" <<
+                    "Host: #{request.parsed_url.host}:#{request.parsed_url.port}\r\n" <<
                     "Accept-Encoding: gzip, deflate\r\n" <<
                     "User-Agent: Typhoeus - https://github.com/typhoeus/typhoeus\r\n" <<
-                        "Host: #{request.parsed_url.host}:#{request.parsed_url.port}\r\n" <<
-                        "Accept: */*\r\n" <<
-                        "Proxy-Connection: Keep-Alive\r\n" <<
-                        "Content-Type: application/x-www-form-urlencoded\r\n" <<
-                        "Content-Length: 7\r\n\r\n"
+                    "Accept: */*\r\n" <<
+                    "Content-Length: 7\r\n" <<
+                    "Accept-Language: en-US,en;q=0.8,he;q=0.6\r\n" <<
+                    "Content-Type: application/x-www-form-urlencoded\r\n\r\n").split( "\r\n" ).sort
+                )
 
-                request.effective_body.should == '1=2&3=4'
+                expect(request.effective_body).to eq('1=2&3=4')
             end
 
             context 'if the block returns false' do
@@ -184,8 +219,8 @@ describe Arachni::HTTP::ProxyServer do
                     called = false
                     proxy = described_class.new(
                         request_handler: proc do |request, response|
-                            request.should be_kind_of Arachni::HTTP::Request
-                            response.should be_kind_of Arachni::HTTP::Response
+                            expect(request).to be_kind_of Arachni::HTTP::Request
+                            expect(response).to be_kind_of Arachni::HTTP::Response
                             called = true
 
                             response.code = 200
@@ -196,19 +231,22 @@ describe Arachni::HTTP::ProxyServer do
                     )
                     proxy.start_async
 
-                    via_proxy( proxy, @url ).body.should == 'stuff'
+                    response = via_proxy( proxy, @url )
 
-                    called.should be_true
+                    expect(response.code).to eq 200
+                    expect(response.body).to eq 'stuff'
+
+                    expect(called).to be_truthy
                 end
             end
         end
 
-        describe :response_handler do
+        describe ':response_handler' do
             it 'sets a block to handle each HTTP request once the origin server has responded' do
                 called = false
                 proxy = described_class.new(
                     response_handler: proc do |request, _|
-                        request.should be_kind_of Arachni::HTTP::Request
+                        expect(request).to be_kind_of Arachni::HTTP::Request
                         called = true
                     end
                 )
@@ -216,14 +254,14 @@ describe Arachni::HTTP::ProxyServer do
 
                 test_proxy proxy
 
-                called.should be_true
+                expect(called).to be_truthy
             end
 
             it 'sets a block to handle each HTTP response once the origin server has responded' do
                 called = false
                 proxy = described_class.new(
                     response_handler: proc do |_, response|
-                        response.should be_kind_of Arachni::HTTP::Response
+                        expect(response).to be_kind_of Arachni::HTTP::Response
                         called = true
                     end
                 )
@@ -231,29 +269,29 @@ describe Arachni::HTTP::ProxyServer do
 
                 test_proxy proxy
 
-                called.should be_true
+                expect(called).to be_truthy
             end
 
             it 'assigns the request to the response' do
                 called = false
                 proxy = described_class.new(
                     response_handler: proc do |_, response|
-                        response.request.should be_kind_of Arachni::HTTP::Request
+                        expect(response.request).to be_kind_of Arachni::HTTP::Request
                         called = true
                     end
                 )
                 proxy.start_async
                 test_proxy proxy
 
-                called.should be_true
+                expect(called).to be_truthy
             end
 
             it 'can manipulate the response' do
                 called = false
                 proxy = described_class.new(
                     response_handler: proc do |request, response|
-                        request.should be_kind_of Arachni::HTTP::Request
-                        response.should be_kind_of Arachni::HTTP::Response
+                        expect(request).to be_kind_of Arachni::HTTP::Request
+                        expect(response).to be_kind_of Arachni::HTTP::Response
                         called = true
 
                         response.body = 'stuff'
@@ -263,10 +301,10 @@ describe Arachni::HTTP::ProxyServer do
 
                 response = via_proxy( proxy, @url )
 
-                response.code.should == 200
-                response.body.should == 'stuff'
+                expect(response.code).to eq(200)
+                expect(response.body).to eq('stuff')
 
-                called.should be_true
+                expect(called).to be_truthy
             end
         end
     end
@@ -283,7 +321,7 @@ describe Arachni::HTTP::ProxyServer do
         context 'when the server is not running' do
             it 'returns false' do
                 proxy = described_class.new
-                proxy.running?.should be_false
+                expect(proxy.running?).to be_falsey
             end
         end
 
@@ -291,71 +329,68 @@ describe Arachni::HTTP::ProxyServer do
             it 'returns true' do
                 proxy = described_class.new
                 proxy.start_async
-                proxy.running?.should be_true
+                expect(proxy.running?).to be_truthy
             end
         end
     end
 
     describe '#address' do
         it 'returns the address of the proxy' do
-            address = 'localhost'
-            port    = Arachni::Utilities.available_port
-
             proxy = described_class.new( address: address, port: port )
-            proxy.address.should == "#{address}:#{port}"
+            expect(proxy.url).to eq "http://#{address}:#{port}"
             proxy.start_async
             test_proxy proxy
         end
     end
 
-    describe '#has_connections?' do
-        context 'when there are active connections' do
+    describe '#has_pending_requests?' do
+        context 'when there are pending requests' do
             it 'returns true' do
                 proxy = described_class.new
                 proxy.start_async
 
-                proxy.has_connections?.should be_false
+                expect(proxy).to_not have_pending_requests
                 Thread.new { via_proxy( proxy, @url + 'sleep' ) }
                 sleep 1
-                proxy.has_connections?.should be_true
+                expect(proxy).to have_pending_requests
             end
         end
 
-        context 'when there are no active connections' do
+        context 'when there are no pending requests' do
             it 'returns false' do
                 proxy = described_class.new
                 proxy.start_async
 
-                proxy.has_connections?.should be_false
+                expect(proxy).to_not have_pending_requests
                 via_proxy( proxy, @url + 'sleep' )
-                proxy.has_connections?.should be_false
+                expect(proxy).to_not have_pending_requests
             end
         end
     end
 
-    describe '#active_connections' do
-        context 'when there are active connections' do
+    describe '#pending_requests' do
+        context 'when there are pending requests' do
             it 'returns the amount' do
                 proxy = described_class.new
                 proxy.start_async
 
-                proxy.active_connections.should == 0
+                expect(proxy.pending_requests).to eq(0)
                 3.times do
                     Thread.new { via_proxy( proxy, @url + 'sleep' ) }
                 end
                 sleep 1
-                proxy.active_connections.should == 3
+                expect(proxy.pending_requests).to eq(3)
             end
         end
 
-        context 'when there are no active connections' do
+        context 'when there are no pending requests' do
             it 'returns 0' do
                 proxy = described_class.new
                 proxy.start_async
 
-                proxy.active_connections.should == 0
+                expect(proxy.pending_requests).to eq(0)
                 via_proxy( proxy, @url + 'sleep' )
-                proxy.active_connections.should == 0
+                expect(proxy.pending_requests).to eq(0)
             end
         end
     end

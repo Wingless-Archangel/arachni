@@ -15,19 +15,21 @@ class MockWorker
 end
 
 class JobTest < Arachni::BrowserCluster::Job
+    include RSpec::Matchers
+
     def ran?
         !!@ran
     end
 
     def run
-        browser.class.should == MockWorker
+        expect(browser.class).to eq MockWorker
         @ran = true
     end
 end
 
 class JobConfigureAndRunTest < JobTest
     def run
-        browser.class.should == MockWorker
+        expect(browser.class).to eq MockWorker
         super
     end
 end
@@ -42,8 +44,8 @@ class JobSaveResultTest < JobTest
         save_result my_data: val
 
         result = browser.master.result
-        result.job.id.should == self.id
-        result.my_data.should == val
+        expect(result.job.id).to eq self.id
+        expect(result.my_data).to eq val
 
         super
     end
@@ -51,13 +53,13 @@ end
 
 class JobCleanCopyTest < JobTest
     def run
-        browser.class.should == MockWorker
+        expect(browser.class).to eq MockWorker
 
         copy = self.clean_copy
-        copy.browser.should == nil
-        copy.id.should == self.id
+        expect(copy.browser).to eq nil
+        expect(copy.id).to eq self.id
 
-        browser.class.should == MockWorker
+        expect(browser.class).to eq MockWorker
 
         super
     end
@@ -81,6 +83,7 @@ end
 describe Arachni::BrowserCluster::Job do
     let(:browser_cluster) { MockBrowserCluster.new }
     let(:worker) { MockWorker.new }
+    let(:args) { [1, 2] }
 
     describe '#id' do
         it 'gets incremented with each initialization' do
@@ -89,7 +92,7 @@ describe Arachni::BrowserCluster::Job do
                 id = described_class.new.id
                 next if i == 0
 
-                described_class.new.id.should == id + 1
+                expect(described_class.new.id).to eq(id + 1)
             end
         end
     end
@@ -98,23 +101,23 @@ describe Arachni::BrowserCluster::Job do
         subject { JobTest.new }
 
         context 'when #never_ending is' do
-            context true do
+            context 'true' do
                 it 'returns true' do
                     subject.never_ending = true
-                    subject.never_ending?.should be_true
+                    expect(subject.never_ending?).to be_truthy
                 end
             end
 
-            context false do
+            context 'false' do
                 it 'returns false' do
                     subject.never_ending = false
-                    subject.never_ending?.should be_false
+                    expect(subject.never_ending?).to be_falsey
                 end
             end
 
-            context nil do
+            context 'nil' do
                 it 'returns false' do
-                    subject.never_ending?.should be_false
+                    expect(subject.never_ending?).to be_falsey
                 end
             end
         end
@@ -128,16 +131,16 @@ describe Arachni::BrowserCluster::Job do
         end
 
         it 'calls #run' do
-            subject.ran?.should be_false
+            expect(subject.ran?).to be_falsey
             subject.configure_and_run( worker )
-            subject.ran?.should be_true
+            expect(subject.ran?).to be_truthy
         end
 
         it 'removes #browser' do
-            subject.ran?.should be_false
+            expect(subject.ran?).to be_falsey
             subject.configure_and_run( worker )
-            subject.browser.should be_nil
-            subject.ran?.should be_true
+            expect(subject.browser).to be_nil
+            expect(subject.ran?).to be_truthy
         end
     end
 
@@ -145,9 +148,9 @@ describe Arachni::BrowserCluster::Job do
         subject { JobSaveResultTest.new }
 
         it 'forwards the result to the BrowserCluster' do
-            subject.ran?.should be_false
+            expect(subject.ran?).to be_falsey
             subject.configure_and_run( worker )
-            subject.ran?.should be_true
+            expect(subject.ran?).to be_truthy
         end
     end
 
@@ -155,108 +158,140 @@ describe Arachni::BrowserCluster::Job do
         subject { JobCleanCopyTest.new }
 
         it 'copies the Job without the resources set by #configure_and_run' do
-            subject.ran?.should be_false
+            expect(subject.ran?).to be_falsey
             subject.configure_and_run( worker )
-            subject.ran?.should be_true
+            expect(subject.ran?).to be_truthy
         end
     end
 
     describe '#dup' do
-        subject { JobDupTest.new( never_ending: true, my_data: 'stuff' ) }
+        subject { JobDupTest.new( never_ending: true, my_data: 'stuff', args: args ) }
 
         it 'copies the Job' do
-            subject.my_data.should == 'stuff'
+            expect(subject.my_data).to eq('stuff')
 
             dup = subject.dup
-            dup.my_data.should == 'stuff'
-            dup.never_ending?.should == true
+            expect(dup.my_data).to eq('stuff')
+            expect(dup.never_ending?).to eq(true)
+        end
+
+        it 'preserves #time' do
+            subject.time = 10
+            expect(subject.time).to eq 10
+
+            dup = subject.dup
+            expect(dup.time).to eq 10
+        end
+
+        it 'preserves #timed_out' do
+            subject.timed_out! 10
+            expect(subject.time).to eq 10
+            expect(subject).to be_timed_out
+
+            dup = subject.dup
+            expect(dup.time).to eq 10
+            expect(subject).to be_timed_out
+        end
+
+        it 'preserves #args' do
+            expect(subject.args).to eq args
+
+            dup = subject.dup
+            expect(dup.args).to eq args
         end
     end
 
     describe '#forward' do
-        subject { JobForwardTest.new( my_data: 'stuff' ) }
+        subject { JobForwardTest.new( args: args, my_data: 'stuff' ) }
 
         it 'sets the original Job as the #forwarder' do
-            id = subject.id
-            subject.forward.forwarder.should == subject
+            expect(subject.forward.forwarder).to eq(subject)
         end
 
         it 'creates a new Job with the same #id' do
             id = subject.id
-            subject.forward.id.should == id
+            expect(subject.forward.id).to eq(id)
         end
 
         it 'creates a new Job with the same #never_ending' do
-            subject.forward.never_ending?.should be_false
+            expect(subject.forward.never_ending?).to be_falsey
 
             job = JobForwardTest.new( never_ending: true, my_data: 'stuff' )
-            job.never_ending?.should be_true
-            job.forward.never_ending?.should be_true
+            expect(job.never_ending?).to be_truthy
+            expect(job.forward.never_ending?).to be_truthy
 
             job = JobForwardTest.new( never_ending: false, my_data: 'stuff' )
-            job.never_ending?.should be_false
-            job.forward.never_ending?.should be_false
+            expect(job.never_ending?).to be_falsey
+            expect(job.forward.never_ending?).to be_falsey
         end
 
-        it 'does not preserve any existing data' do
-            subject.forward.my_data.should be_nil
+        it 'does not preserve arbitrary data' do
+            expect(subject.forward.my_data).to be_nil
+        end
+
+        it 'preserves #args' do
+            expect(subject.forward.args).to eq args
         end
 
         context 'when options are given' do
             it 'sets initialization options' do
-                subject.forward( my_data: 'stuff2' ).my_data.should == 'stuff2'
+                expect(subject.forward( my_data: 'stuff2' ).my_data).to eq('stuff2')
             end
         end
     end
 
     describe '#forward_as' do
-        subject { JobForwardTest.new( my_data: 'stuff' ) }
+        subject { JobForwardTest.new( args: args, my_data: 'stuff' ) }
 
         it 'sets the original Job as the #forwarder' do
             id = subject.id
-            subject.forward_as( JobForwardAsTest ).forwarder.should == subject
+            expect(subject.forward_as( JobForwardAsTest ).forwarder).to eq(subject)
         end
 
-        it 'creates a new Job type with the same #id' do
-            subject.should_not be_kind_of JobForwardAsTest
+        it 'creates a new Job type with a new #id' do
+            expect(subject).not_to be_kind_of JobForwardAsTest
 
             id = subject.id
 
             forwarded = subject.forward_as( JobForwardAsTest )
 
-            forwarded.id.should == id
-            forwarded.should be_kind_of JobForwardAsTest
+            expect(forwarded.id).to_not eq(id)
+            expect(forwarded).to be_kind_of JobForwardAsTest
         end
 
         it 'creates a new Job with the same #never_ending' do
-            subject.forward_as( JobForwardAsTest ).never_ending?.should be_false
+            expect(subject.forward_as( JobForwardAsTest ).never_ending?).to be_falsey
 
             job = JobForwardTest.new( never_ending: true, my_data: 'stuff' )
-            job.never_ending?.should be_true
-            job.forward_as( JobForwardAsTest ).never_ending?.should be_true
+            expect(job.never_ending?).to be_truthy
+            expect(job.forward_as( JobForwardAsTest ).never_ending?).to be_truthy
 
             job = JobForwardTest.new( never_ending: false, my_data: 'stuff' )
-            job.never_ending?.should be_false
-            job.forward_as( JobForwardAsTest ).never_ending?.should be_false
+            expect(job.never_ending?).to be_falsey
+            expect(job.forward_as( JobForwardAsTest ).never_ending?).to be_falsey
         end
 
-        it 'does not preserve any existing data' do
-            subject.should_not be_kind_of JobForwardAsTest
+        it 'does not preserve arbitrary existing data' do
+            expect(subject).not_to be_kind_of JobForwardAsTest
 
             forwarded = subject.forward_as( JobForwardAsTest )
 
-            forwarded.my_data.should be_nil
-            forwarded.should be_kind_of JobForwardAsTest
+            expect(forwarded.my_data).to be_nil
+            expect(forwarded).to be_kind_of JobForwardAsTest
+        end
+
+        it 'preserves #args' do
+            expect(subject.forward.args).to eq args
         end
 
         context 'when options are given' do
             it 'sets initialization options' do
-                subject.should_not be_kind_of JobForwardAsTest
+                expect(subject).not_to be_kind_of JobForwardAsTest
 
                 forwarded = subject.forward_as( JobForwardAsTest, my_data: 'stuff2' )
 
-                forwarded.my_data.should == 'stuff2'
-                forwarded.should be_kind_of JobForwardAsTest
+                expect(forwarded.my_data).to eq('stuff2')
+                expect(forwarded).to be_kind_of JobForwardAsTest
             end
         end
     end

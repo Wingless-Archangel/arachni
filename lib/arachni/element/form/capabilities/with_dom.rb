@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -15,11 +15,11 @@ module Capabilities
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
 module WithDOM
-    include Arachni::Element::Capabilities::WithNode
     include Arachni::Element::Capabilities::WithDOM
 
     # @return   [DOM]
     def dom
+        return if skip_dom?
         return @dom if @dom
         return if !node || inputs.empty?
         super

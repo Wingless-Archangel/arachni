@@ -1,5 +1,5 @@
 =begin
-    Copyright 2010-2015 Tasos Laskos <tasos.laskos@arachni-scanner.com>
+    Copyright 2010-2017 Sarosys LLC <http://www.sarosys.com>
 
     This file is part of the Arachni Framework project and is subject to
     redistribution and commercial restrictions. Please see the Arachni Framework
@@ -11,17 +11,41 @@
 #
 # @author Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com>
 #
-# @version 0.1.8
-#
 # @see http://cwe.mitre.org/data/definitions/79.html
 # @see http://ha.ckers.org/xss.html
 # @see http://secunia.com/advisories/9716/
 class Arachni::Checks::XssTag < Arachni::Check::Base
 
-    TAG_NAME = 'arachni_xss_in_tag'
+    ATTRIBUTE_NAME = 'arachni_xss_in_tag'
+
+    class SAX
+        attr_reader :landed
+
+        def initialize( seed )
+            @seed = seed
+        end
+
+        def document
+        end
+
+        def landed?
+            !!@landed
+        end
+
+        def attr( name, value )
+            name  = name.to_s.downcase
+            value = value.downcase
+
+            return if ATTRIBUTE_NAME != name || value != @seed
+
+            @landed = true
+            fail Arachni::Parser::SAX::Stop
+        end
+    end
 
     def self.strings
-        @strings ||= ['', '\'', '"'].map { |q| "#{q} #{TAG_NAME}=#{q}#{random_seed}#{q} blah=#{q}" }
+        @strings ||= ['', '\'', '"'].
+            map { |q| "#{q} #{ATTRIBUTE_NAME}=#{q}#{random_seed}#{q} blah=#{q}" }
     end
 
     def run
@@ -31,21 +55,21 @@ class Arachni::Checks::XssTag < Arachni::Check::Base
     end
 
     def check_and_log( response, element )
-        body = response.body.downcase
+        return if !response.html?
 
-        # if we have no body or it doesn't contain the TAG_NAME under any
-        # context there's no point in parsing the HTML to verify the vulnerability
-        return if !body.include?( TAG_NAME )
+        # If we have no body or it doesn't contain the ATTRIBUTE_NAME under any
+        # context there's no point in parsing the HTML to verify the vulnerability.
+        return if !(response.body =~ /#{ATTRIBUTE_NAME}/i)
 
-        # see if we managed to inject a working HTML attribute to any
-        # elements
-        Nokogiri::HTML( body ).xpath( "//*[@#{TAG_NAME}]" ).each do |node|
-            next if node[TAG_NAME] != random_seed
+        handler = SAX.new( random_seed )
+        Arachni::Parser.parse( response.body, handler: handler )
+        return if !handler.landed?
 
-            proof = (payload = find_included_payload( body )) ? payload : node.to_s
-            log vector: element, proof: proof.to_s, response: response
-            return
-        end
+        log(
+            vector: element,
+            proof: find_included_payload( response.body.downcase ).to_s,
+            response: response
+        )
     end
 
     def find_included_payload( body )
@@ -61,7 +85,7 @@ class Arachni::Checks::XssTag < Arachni::Check::Base
             description: %q{Cross-Site Scripting in HTML tag.},
             elements:    [ Element::Form, Element::Link, Element::Cookie, Element::Header ],
             author:      'Tasos "Zapotek" Laskos <tasos.laskos@arachni-scanner.com> ',
-            version:     '0.1.8',
+            version:     '0.1.11',
 
             issue:       {
                 name:            %q{Cross-Site Scripting (XSS) in HTML tag},
@@ -84,9 +108,9 @@ tag. For example `<INJECTION_HERE href=.......etc>` where `INJECTION_HERE`
 represents the location where the Arachni payload was detected.
 },
                 references:  {
-                    'ha.ckers' => 'http://ha.ckers.org/xss.html',
-                    'Secunia'  => 'http://secunia.com/advisories/9716/',
-                    'WASC' => 'http://projects.webappsec.org/w/page/13246920/Cross%20Site%20Scripting'
+                    'Secunia' => 'http://secunia.com/advisories/9716/',
+                    'WASC'    => 'http://projects.webappsec.org/w/page/13246920/Cross%20Site%20Scripting',
+                    'OWASP'   => 'https://www.owasp.org/index.php/XSS_%28Cross_Site_Scripting%29_Prevention_Cheat_Sheet'
                 },
 
                 tags:            %w(xss script tag regexp dom attribute injection),
